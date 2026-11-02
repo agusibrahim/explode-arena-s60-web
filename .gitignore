@@ -10,6 +10,8 @@
 *.mod
 *.wav
 *.cfg
+*.sav
+*.apk
 extracted_sis/
 extracted_pak/
 
