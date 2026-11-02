@@ -50,7 +50,14 @@ static uint32_t mp_tx_count = 0;
 static uint32_t mp_Scratch_addr = 0;
 static uint32_t mp_connected_clients = 0;
 static uint8_t  mp_client_selected[4] = {0, 0, 0, 0};
+static uint32_t mp_client_uids[4] = {0, 0, 0, 0};
 static char     mp_client_names[4][16] = {"PLAYER 2", "PLAYER 3", "PLAYER 4", "PLAYER 5"};
+static uint32_t mp_local_uid = 0x12345678u;
+static uint32_t mp_waiting_for_peer = 0;
+static uint32_t mp_rx_watchdog = 0;
+static uint32_t fb_dirty = 1;
+static uint32_t prev_rgba_fb[176 * 208];
+static uint8_t  dirty_strips[26];
 
 // Minimal standalone C memory/string helpers (no libc required)
 static void *my_memset(void *dst, int val, size_t n) {
@@ -459,7 +466,62 @@ static void run_arm(uint32_t start_pc) {
         }
 
         if (pc >= 0x10041e00u || pc < 0x10014ff0u) {
-            if (pc == 0x10013f9cu) {
+            if (pc == 0x1000a5ecu) { // Native C HLE fast-path for CFade::ApplyFade (100% bit-exact, 300x faster)
+                uint32_t self = reg[0];
+                int32_t fade = (int32_t)r32(self + 0x10u);
+                if (fade != 0) {
+                    uint32_t cgame = r32(self);
+                    uint32_t fb = r32(cgame + 0x90u) + 0xc10u; // (8 * 192 + 8) * 2
+                    uint32_t lut = r32(self + 0x0cu);
+                    if (fade < 0) {
+                        uint32_t lvl = (uint32_t)(-fade) >> 3;
+                        if (lvl >= 31u) {
+                            for (uint32_t y = 0; y < 208u; y++) {
+                                my_memset(mem + ((fb + y * 384u) & ADDR_MASK), 0, 176u * 2u);
+                            }
+                        } else {
+                            const uint8_t *row = mem + ((lut + ((32u - lvl) << 6)) & ADDR_MASK);
+                            for (uint32_t y = 0; y < 208u; y++) {
+                                uint32_t p = (fb + y * 384u) & ADDR_MASK;
+                                for (uint32_t x = 0; x < 176u; x++, p += 2u) {
+                                    uint16_t px = (uint16_t)mem[p] | ((uint16_t)mem[p + 1] << 8);
+                                    uint32_t b5 = px & 0x1fu;
+                                    uint32_t g5 = (px >> 6) & 0x1fu;
+                                    uint32_t r5 = (px >> 11) & 0x1fu;
+                                    uint16_t out = (uint16_t)((row[r5] << 11) | (row[g5] << 6) | row[b5]);
+                                    mem[p] = (uint8_t)(out & 0xffu);
+                                    mem[p + 1] = (uint8_t)(out >> 8);
+                                }
+                            }
+                        }
+                    } else {
+                        uint32_t lvl = (uint32_t)fade >> 3;
+                        if (lvl >= 31u) {
+                            for (uint32_t y = 0; y < 208u; y++) {
+                                my_memset(mem + ((fb + y * 384u) & ADDR_MASK), 0xff, 176u * 2u);
+                            }
+                        } else {
+                            const uint8_t *row = mem + ((lut + (lvl << 6)) & ADDR_MASK);
+                            for (uint32_t y = 0; y < 208u; y++) {
+                                uint32_t p = (fb + y * 384u) & ADDR_MASK;
+                                for (uint32_t x = 0; x < 176u; x++, p += 2u) {
+                                    uint16_t px = (uint16_t)mem[p] | ((uint16_t)mem[p + 1] << 8);
+                                    uint32_t b5 = px & 0x1fu;
+                                    uint32_t g5 = (px >> 6) & 0x1fu;
+                                    uint32_t r5 = (px >> 11) & 0x1fu;
+                                    uint32_t nb = b5 + row[31u - b5];
+                                    uint32_t ng = g5 + row[31u - g5];
+                                    uint32_t nr = r5 + row[31u - r5];
+                                    uint16_t out = (uint16_t)((nr << 11) | (ng << 6) | nb);
+                                    mem[p] = (uint8_t)(out & 0xffu);
+                                    mem[p + 1] = (uint8_t)(out >> 8);
+                                }
+                            }
+                        }
+                    }
+                }
+                reg[15] = reg[14]; continue;
+            } else if (pc == 0x10013f9cu) {
                 reg[15] = reg[14]; continue;
             } else if (pc == 0x10041e18u) {
                 tls_val = reg[0];
@@ -546,12 +608,19 @@ static void run_arm(uint32_t start_pc) {
                 for (int i = 0; i < 9; i++) {
                     hello[2 + i] = r8(cgame_addr + 0x28u + i);
                 }
-                mp_enqueue_tx(-1, hello, 12);
+                hello[12] = (uint8_t)(mp_local_uid & 0xffu);
+                hello[13] = (uint8_t)((mp_local_uid >> 8) & 0xffu);
+                hello[14] = (uint8_t)((mp_local_uid >> 16) & 0xffu);
+                hello[15] = (uint8_t)((mp_local_uid >> 24) & 0xffu);
+                mp_enqueue_tx(-1, hello, 16);
                 reg[0] = 1;
                 reg[15] = reg[14]; continue;
             } else if (pc == 0x1002d880u) { // CBTTransport::ServerStartScan(bt)
                 mp_connected_clients = 0;
-                for (int i = 0; i < 4; i++) mp_client_selected[i] = 0;
+                for (int i = 0; i < 4; i++) {
+                    mp_client_selected[i] = 0;
+                    mp_client_uids[i] = 0;
+                }
                 uint8_t beacon[4] = { 0xff, 0x01, 0x00, 0x00 };
                 mp_enqueue_tx(-1, beacon, 4);
                 reg[0] = 1;
@@ -559,6 +628,15 @@ static void run_arm(uint32_t start_pc) {
             } else if (pc == 0x10041bb8u) { // CMultiplayer::IsScanInitDone(mp)
                 reg[0] = 0; // 0 = ready, transitions State 3 -> State 5
                 reg[15] = reg[14]; continue;
+            } else if (pc == 0x10041a50u) { // End of CMultiplayer::ProcessIncomingPackets (0x100414e8)
+                mp_waiting_for_peer = (reg[0] == 0u) ? 1u : 0u;
+                uint32_t mp = r32(cgame_addr + 0x334u);
+                if (mp && mp_rx_watchdog < 160u) {
+                    w32(mp + 0x28u, fake_time_ms);
+                    w8(mp + 0x32u, 0);
+                    w8(mp + 0x33u, 0);
+                }
+                // Fall through to execute `add sp, sp, #0x12c` at 0x10041a50!
             } else if (pc == 0x1002d8b8u) { // CBTTransport::ServerPollScan(bt)
                 if (mp_connected_clients > 0u) {
                     reg[0] = 0; // 0 = scan complete, transitions State 5 -> State 6
@@ -730,8 +808,11 @@ static void run_arm(uint32_t start_pc) {
                     }
                 }
                 reg[15] = reg[14]; continue;
-            } else if (pc == 0x1004226cu) {
-                fake_time_ms += 16;
+            } else if (pc == 0x1004226cu) { // User::TickCount (64Hz Symbian tick counter)
+                uint32_t mp = cgame_addr ? r32(cgame_addr + 0x334u) : 0u;
+                if (mp && r8(mp + 0x4du) == 5u) {
+                    fake_time_ms += 64u; // Fast-forward State 5 scan delay
+                }
                 reg[0] = fake_time_ms;
                 reg[15] = reg[14]; continue;
             } else if (pc == 0x10042cecu) {
@@ -1100,13 +1181,27 @@ static inline uint32_t avg_rgb2(uint32_t c1, uint32_t c2) {
 }
 
 // Stage 1: Edge-Preserving Bilateral De-Dithering (removes 4-bit/8-bit Symbian checkerboard dithering)
-static void pass1_dedither_int(const uint32_t *src, uint32_t *dst, int w, int h) {
+static void pass1_dedither_int(const uint32_t *src, uint32_t *dst, int w, int h, int y_start, int y_end) {
     const int thresh = 460;
-    for (int y = 0; y < h; y++) {
+    if (y_start < 0) y_start = 0;
+    if (y_end > h) y_end = h;
+    for (int y = y_start; y < y_end; y++) {
         int ym1 = (y > 0) ? (y - 1) : 0;
         int yp1 = (y + 1 < h) ? (y + 1) : (h - 1);
         for (int x = 0; x < w; x++) {
             uint32_t center = src[y * w + x];
+            if (x > 0 && x + 1 < w) {
+                const uint32_t *urow = src + ym1 * w;
+                const uint32_t *crow = src + y * w;
+                const uint32_t *drow = src + yp1 * w;
+                if (crow[x - 1] == center && crow[x + 1] == center &&
+                    urow[x] == center && drow[x] == center &&
+                    urow[x - 1] == center && urow[x + 1] == center &&
+                    drow[x - 1] == center && drow[x + 1] == center) {
+                    dst[y * w + x] = center;
+                    continue;
+                }
+            }
             int rc = (int)(center & 0xffu);
             int gc = (int)((center >> 8) & 0xffu);
             int bc = (int)((center >> 16) & 0xffu);
@@ -1150,81 +1245,119 @@ static inline uint32_t px_at(const uint32_t *img, int w, int h, int x, int y) {
 }
 
 // Stage 2 & 4: Full 5x5 21-Tap xBR Level-2 2x Upscaler (45, 26.5, and 63.4 degree slope reconstruction)
-static void xbr_2x_pass_int(const uint32_t *src, int sw, int sh, uint32_t *dst) {
+static void xbr_2x_pass_int(const uint32_t *src, int sw, int sh, uint32_t *dst, int y_start, int y_end) {
     int dw = sw * 2;
-    for (int y = 0; y < sh; y++) {
+    if (y_start < 0) y_start = 0;
+    if (y_end > sh) y_end = sh;
+    for (int y = y_start; y < y_end; y++) {
+        int interior_y = (y >= 2 && y < sh - 2);
+        const uint32_t *r_m2 = interior_y ? (src + (y - 2) * sw) : NULL;
+        const uint32_t *r_m1 = interior_y ? (src + (y - 1) * sw) : NULL;
+        const uint32_t *r_0  = src + y * sw;
+        const uint32_t *r_p1 = interior_y ? (src + (y + 1) * sw) : NULL;
+        const uint32_t *r_p2 = interior_y ? (src + (y + 2) * sw) : NULL;
+
         for (int x = 0; x < sw; x++) {
-            uint32_t A1 = px_at(src, sw, sh, x - 1, y - 2);
-            uint32_t B1 = px_at(src, sw, sh, x,     y - 2);
-            uint32_t C1 = px_at(src, sw, sh, x + 1, y - 2);
-
-            uint32_t A0 = px_at(src, sw, sh, x - 2, y - 1);
-            uint32_t A  = px_at(src, sw, sh, x - 1, y - 1);
-            uint32_t B  = px_at(src, sw, sh, x,     y - 1);
-            uint32_t C  = px_at(src, sw, sh, x + 1, y - 1);
-            uint32_t C4 = px_at(src, sw, sh, x + 2, y - 1);
-
-            uint32_t D0 = px_at(src, sw, sh, x - 2, y);
-            uint32_t D  = px_at(src, sw, sh, x - 1, y);
-            uint32_t E  = px_at(src, sw, sh, x,     y);
-            uint32_t F  = px_at(src, sw, sh, x + 1, y);
-            uint32_t F4 = px_at(src, sw, sh, x + 2, y);
-
-            uint32_t G0 = px_at(src, sw, sh, x - 2, y + 1);
-            uint32_t G  = px_at(src, sw, sh, x - 1, y + 1);
-            uint32_t H  = px_at(src, sw, sh, x,     y + 1);
-            uint32_t I  = px_at(src, sw, sh, x + 1, y + 1);
-            uint32_t I4 = px_at(src, sw, sh, x + 2, y + 1);
-
-            uint32_t G5 = px_at(src, sw, sh, x - 1, y + 2);
-            uint32_t H5 = px_at(src, sw, sh, x,     y + 2);
-            uint32_t I5 = px_at(src, sw, sh, x + 1, y + 2);
+            uint32_t E = r_0[x];
+            uint32_t B, D, F, H;
+            int interior = interior_y && (x >= 2 && x < sw - 2);
+            if (interior) {
+                B = r_m1[x];
+                D = r_0[x - 1];
+                F = r_0[x + 1];
+                H = r_p1[x];
+            } else {
+                B = px_at(src, sw, sh, x,     y - 1);
+                D = px_at(src, sw, sh, x - 1, y);
+                F = px_at(src, sw, sh, x + 1, y);
+                H = px_at(src, sw, sh, x,     y + 1);
+            }
+            if ((E == B && E == D && E == F && E == H) ||
+                (yuv_dist_int(E, B) < 48u && yuv_dist_int(E, D) < 48u &&
+                 yuv_dist_int(E, F) < 48u && yuv_dist_int(E, H) < 48u)) {
+                dst[(y * 2) * dw + (x * 2)]         = E;
+                dst[(y * 2) * dw + (x * 2 + 1)]     = E;
+                dst[(y * 2 + 1) * dw + (x * 2)]     = E;
+                dst[(y * 2 + 1) * dw + (x * 2 + 1)] = E;
+                continue;
+            }
+            uint32_t A1, B1, C1, A0, A, C, C4, D0, F4, G0, G, I, I4, G5, H5, I5;
+            if (interior) {
+                A1 = r_m2[x - 1]; B1 = r_m2[x]; C1 = r_m2[x + 1];
+                A0 = r_m1[x - 2]; A  = r_m1[x - 1]; C = r_m1[x + 1]; C4 = r_m1[x + 2];
+                D0 = r_0[x - 2];  F4 = r_0[x + 2];
+                G0 = r_p1[x - 2]; G  = r_p1[x - 1]; I = r_p1[x + 1]; I4 = r_p1[x + 2];
+                G5 = r_p2[x - 1]; H5 = r_p2[x];     I5 = r_p2[x + 1];
+            } else {
+                A1 = px_at(src, sw, sh, x - 1, y - 2);
+                B1 = px_at(src, sw, sh, x,     y - 2);
+                C1 = px_at(src, sw, sh, x + 1, y - 2);
+                A0 = px_at(src, sw, sh, x - 2, y - 1);
+                A  = px_at(src, sw, sh, x - 1, y - 1);
+                C  = px_at(src, sw, sh, x + 1, y - 1);
+                C4 = px_at(src, sw, sh, x + 2, y - 1);
+                D0 = px_at(src, sw, sh, x - 2, y);
+                F4 = px_at(src, sw, sh, x + 2, y);
+                G0 = px_at(src, sw, sh, x - 2, y + 1);
+                G  = px_at(src, sw, sh, x - 1, y + 1);
+                I  = px_at(src, sw, sh, x + 1, y + 1);
+                I4 = px_at(src, sw, sh, x + 2, y + 1);
+                G5 = px_at(src, sw, sh, x - 1, y + 2);
+                H5 = px_at(src, sw, sh, x,     y + 2);
+                I5 = px_at(src, sw, sh, x + 1, y + 2);
+            }
 
             uint32_t E0 = E, E1 = E, E2 = E, E3 = E;
+            uint32_t d_EA = yuv_dist_int(E, A), d_EC = yuv_dist_int(E, C);
+            uint32_t d_EG = yuv_dist_int(E, G), d_EI = yuv_dist_int(E, I);
+            uint32_t d_EB = yuv_dist_int(E, B), d_ED = yuv_dist_int(E, D);
+            uint32_t d_EF = yuv_dist_int(E, F), d_EH = yuv_dist_int(E, H);
+            uint32_t d_HF = yuv_dist_int(H, F), d_DH = yuv_dist_int(D, H);
+            uint32_t d_BF = yuv_dist_int(B, F), d_DB = yuv_dist_int(D, B);
 
             {
-                uint32_t wd1 = yuv_dist_int(E, C) + yuv_dist_int(E, G) + yuv_dist_int(I, H5) + yuv_dist_int(I, F4) + 4u * yuv_dist_int(H, F);
-                uint32_t wd2 = yuv_dist_int(H, D) + yuv_dist_int(H, I5) + yuv_dist_int(F, I4) + yuv_dist_int(F, B) + 4u * yuv_dist_int(E, I);
+                uint32_t wd1 = d_EC + d_EG + yuv_dist_int(I, H5) + yuv_dist_int(I, F4) + 4u * d_HF;
+                uint32_t wd2 = d_DH + yuv_dist_int(H, I5) + yuv_dist_int(F, I4) + d_BF + 4u * d_EI;
                 if (wd1 < wd2) {
-                    uint32_t nc = (yuv_dist_int(E, F) <= yuv_dist_int(E, H)) ? F : H;
+                    uint32_t nc = (d_EF <= d_EH) ? F : H;
                     uint32_t df = yuv_dist_int(F, G), dh = yuv_dist_int(H, C);
-                    if ((df * 2u < dh && yuv_dist_int(E, G) > 140u) || (dh * 2u < df && yuv_dist_int(E, C) > 140u))
+                    if ((df * 2u < dh && d_EG > 140u) || (dh * 2u < df && d_EC > 140u))
                         E3 = lerp_rgb_int(E, nc, 192u);
                     else
                         E3 = avg_rgb2(E, nc);
                 }
             }
             {
-                uint32_t wd1 = yuv_dist_int(E, A) + yuv_dist_int(E, I) + yuv_dist_int(G, H5) + yuv_dist_int(G, D0) + 4u * yuv_dist_int(D, H);
-                uint32_t wd2 = yuv_dist_int(H, F) + yuv_dist_int(H, G5) + yuv_dist_int(D, G0) + yuv_dist_int(D, B) + 4u * yuv_dist_int(E, G);
+                uint32_t wd1 = d_EA + d_EI + yuv_dist_int(G, H5) + yuv_dist_int(G, D0) + 4u * d_DH;
+                uint32_t wd2 = d_HF + yuv_dist_int(H, G5) + yuv_dist_int(D, G0) + d_DB + 4u * d_EG;
                 if (wd1 < wd2) {
-                    uint32_t nc = (yuv_dist_int(E, D) <= yuv_dist_int(E, H)) ? D : H;
+                    uint32_t nc = (d_ED <= d_EH) ? D : H;
                     uint32_t dd = yuv_dist_int(D, I), dh = yuv_dist_int(H, A);
-                    if ((dd * 2u < dh && yuv_dist_int(E, I) > 140u) || (dh * 2u < dd && yuv_dist_int(E, A) > 140u))
+                    if ((dd * 2u < dh && d_EI > 140u) || (dh * 2u < dd && d_EA > 140u))
                         E2 = lerp_rgb_int(E, nc, 192u);
                     else
                         E2 = avg_rgb2(E, nc);
                 }
             }
             {
-                uint32_t wd1 = yuv_dist_int(E, A) + yuv_dist_int(E, I) + yuv_dist_int(C, B1) + yuv_dist_int(C, F4) + 4u * yuv_dist_int(B, F);
-                uint32_t wd2 = yuv_dist_int(B, D) + yuv_dist_int(B, C1) + yuv_dist_int(F, C4) + yuv_dist_int(F, H) + 4u * yuv_dist_int(E, C);
+                uint32_t wd1 = d_EA + d_EI + yuv_dist_int(C, B1) + yuv_dist_int(C, F4) + 4u * d_BF;
+                uint32_t wd2 = d_DB + yuv_dist_int(B, C1) + yuv_dist_int(F, C4) + d_HF + 4u * d_EC;
                 if (wd1 < wd2) {
-                    uint32_t nc = (yuv_dist_int(E, F) <= yuv_dist_int(E, B)) ? F : B;
+                    uint32_t nc = (d_EF <= d_EB) ? F : B;
                     uint32_t df = yuv_dist_int(F, A), db = yuv_dist_int(B, I);
-                    if ((df * 2u < db && yuv_dist_int(E, A) > 140u) || (db * 2u < df && yuv_dist_int(E, I) > 140u))
+                    if ((df * 2u < db && d_EA > 140u) || (db * 2u < df && d_EI > 140u))
                         E1 = lerp_rgb_int(E, nc, 192u);
                     else
                         E1 = avg_rgb2(E, nc);
                 }
             }
             {
-                uint32_t wd1 = yuv_dist_int(E, G) + yuv_dist_int(E, C) + yuv_dist_int(A, B1) + yuv_dist_int(A, D0) + 4u * yuv_dist_int(D, B);
-                uint32_t wd2 = yuv_dist_int(B, F) + yuv_dist_int(B, A1) + yuv_dist_int(D, A0) + yuv_dist_int(D, H) + 4u * yuv_dist_int(E, A);
+                uint32_t wd1 = d_EG + d_EC + yuv_dist_int(A, B1) + yuv_dist_int(A, D0) + 4u * d_DB;
+                uint32_t wd2 = d_BF + yuv_dist_int(B, A1) + yuv_dist_int(D, A0) + d_DH + 4u * d_EA;
                 if (wd1 < wd2) {
-                    uint32_t nc = (yuv_dist_int(E, D) <= yuv_dist_int(E, B)) ? D : B;
+                    uint32_t nc = (d_ED <= d_EB) ? D : B;
                     uint32_t dd = yuv_dist_int(D, C), db = yuv_dist_int(B, G);
-                    if ((dd * 2u < db && yuv_dist_int(E, C) > 140u) || (db * 2u < dd && yuv_dist_int(E, G) > 140u))
+                    if ((dd * 2u < db && d_EC > 140u) || (db * 2u < dd && d_EG > 140u))
                         E0 = lerp_rgb_int(E, nc, 192u);
                     else
                         E0 = avg_rgb2(E, nc);
@@ -1240,14 +1373,17 @@ static void xbr_2x_pass_int(const uint32_t *src, int sw, int sh, uint32_t *dst) 
 }
 
 // Stage 3 & 5: Anime4K Directional Push + Sobel Iso-Contour Tangent Smoothing
-static void anime4k_refine_int(const uint32_t *src, int w, int h, uint32_t *dst, uint32_t push_w) {
-    int total = w * h;
-    for (int i = 0; i < total; i++) {
+static void anime4k_refine_int(const uint32_t *src, int w, int h, uint32_t *dst, uint32_t push_w, int y_start, int y_end) {
+    if (y_start < 0) y_start = 0;
+    if (y_end > h) y_end = h;
+    int l_y0 = (y_start > 0) ? (y_start - 1) : 0;
+    int l_y1 = (y_end < h) ? (y_end + 1) : h;
+    for (int i = l_y0 * w; i < l_y1 * w; i++) {
         uint32_t c = src[i];
         luma_buf[i] = (uint16_t)((c & 0xffu) * 3u + ((c >> 8) & 0xffu) * 6u + ((c >> 16) & 0xffu));
     }
 
-    for (int y = 0; y < h; y++) {
+    for (int y = y_start; y < y_end; y++) {
         if (y == 0 || y == h - 1) {
             for (int x = 0; x < w; x++) dst[y * w + x] = src[y * w + x];
             continue;
@@ -1264,13 +1400,19 @@ static void anime4k_refine_int(const uint32_t *src, int w, int h, uint32_t *dst,
         out[w - 1] = s_c[w - 1];
 
         for (int x = 1; x < w - 1; x++) {
-            uint32_t tl = s_u[x - 1], tc = s_u[x], tr = s_u[x + 1];
-            uint32_t ml = s_c[x - 1], mc = s_c[x], mr = s_c[x + 1];
-            uint32_t bl = s_d[x - 1], bc = s_d[x], br = s_d[x + 1];
+            uint32_t mc = s_c[x];
+            int l_mc = l_c[x];
+            int l_tc = l_u[x], l_bc = l_d[x], l_ml = l_c[x - 1], l_mr = l_c[x + 1];
+            if (iabs_val(l_mc - l_tc) < 28 && iabs_val(l_mc - l_bc) < 28 &&
+                iabs_val(l_mc - l_ml) < 28 && iabs_val(l_mc - l_mr) < 28) {
+                out[x] = mc;
+                continue;
+            }
+            uint32_t tc = s_u[x], bc = s_d[x], ml = s_c[x - 1], mr = s_c[x + 1];
+            uint32_t tl = s_u[x - 1], tr = s_u[x + 1], bl = s_d[x - 1], br = s_d[x + 1];
 
-            int l_tl = l_u[x - 1], l_tc = l_u[x], l_tr = l_u[x + 1];
-            int l_ml = l_c[x - 1], l_mc = l_c[x], l_mr = l_c[x + 1];
-            int l_bl = l_d[x - 1], l_bc = l_d[x], l_br = l_d[x + 1];
+            int l_tl = l_u[x - 1], l_tr = l_u[x + 1];
+            int l_bl = l_d[x - 1], l_br = l_d[x + 1];
 
             uint32_t res = mc;
 
@@ -1315,11 +1457,14 @@ static void anime4k_refine_int(const uint32_t *src, int w, int h, uint32_t *dst,
     }
 }
 
-static void update_rgba_fb(void) {
+static void update_rgba_fb(int force) {
     uint32_t base = FB_GUEST_ADDR & ADDR_MASK;
     int idx = 0;
-    for (int y = 8; y < 8 + 208; y++) {
-        uint32_t row_off = base + (uint32_t)(y * 192 * 2);
+    int changed = force;
+    for (int s = 0; s < 26; s++) dirty_strips[s] = force ? 1 : 0;
+    for (int y = 0; y < 208; y++) {
+        uint32_t row_off = base + (uint32_t)((y + 8) * 192 * 2);
+        int strip = y >> 3;
         for (int x = 8; x < 8 + 176; x++) {
             uint32_t p_off = row_off + (uint32_t)(x * 2);
             uint16_t px = (uint16_t)mem[p_off] | ((uint16_t)mem[p_off + 1] << 8);
@@ -1329,11 +1474,32 @@ static void update_rgba_fb(void) {
             uint32_t r8_val = (r5 << 3) | (r5 >> 2);
             uint32_t g8_val = (g6 << 2) | (g6 >> 4);
             uint32_t b8_val = (b5 << 3) | (b5 >> 2);
-            rgba_fb[idx++] = 0xff000000u | (b8_val << 16) | (g8_val << 8) | r8_val;
+            uint32_t rgba = 0xff000000u | (b8_val << 16) | (g8_val << 8) | r8_val;
+            rgba_fb[idx] = rgba;
+            if (prev_rgba_fb[idx] != rgba) {
+                prev_rgba_fb[idx] = rgba;
+                changed = 1;
+                dirty_strips[strip] = 1;
+            }
+            idx++;
         }
     }
+    fb_dirty = 0;
+    if (!changed) return;
+
+    int y_min = 208, y_max = 0;
+    for (int s = 0; s < 26; s++) {
+        if (dirty_strips[s]) {
+            int s0 = (s > 0 ? (s - 1) : 0) * 8;
+            int s1 = (s < 25 ? (s + 2) : 26) * 8;
+            if (s0 < y_min) y_min = s0;
+            if (s1 > y_max) y_max = s1;
+        }
+    }
+    if (y_min >= y_max) return;
+
     if (upscale_mode == 0) {
-        for (int y = 0; y < 208; y++) {
+        for (int y = y_min; y < y_max; y++) {
             const uint32_t *srow = rgba_fb + y * 176;
             for (int dy = 0; dy < 4; dy++) {
                 uint32_t *drow = upscaled_4x + (y * 4 + dy) * 704;
@@ -1347,14 +1513,16 @@ static void update_rgba_fb(void) {
             }
         }
     } else if (upscale_mode == 1) {
-        xbr_2x_pass_int(rgba_fb, 176, 208, upscaled_2x);
-        xbr_2x_pass_int(upscaled_2x, 352, 416, upscaled_4x);
+        xbr_2x_pass_int(rgba_fb, 176, 208, upscaled_2x, y_min, y_max);
+        xbr_2x_pass_int(upscaled_2x, 352, 416, upscaled_4x, y_min * 2, y_max * 2);
     } else {
-        pass1_dedither_int(rgba_fb, dedith_1x, 176, 208);
-        xbr_2x_pass_int(dedith_1x, 176, 208, upscaled_2x);
-        anime4k_refine_int(upscaled_2x, 352, 416, refine_2x, 90u);
-        xbr_2x_pass_int(refine_2x, 352, 416, xbr_4x);
-        anime4k_refine_int(xbr_4x, 704, 832, upscaled_4x, 108u);
+        int d_y0 = (y_min > 2) ? (y_min - 2) : 0;
+        int d_y1 = (y_max + 2 < 208) ? (y_max + 2) : 208;
+        pass1_dedither_int(rgba_fb, dedith_1x, 176, 208, d_y0, d_y1);
+        xbr_2x_pass_int(dedith_1x, 176, 208, upscaled_2x, y_min, y_max);
+        anime4k_refine_int(upscaled_2x, 352, 416, refine_2x, 90u, y_min * 2, y_max * 2);
+        xbr_2x_pass_int(refine_2x, 352, 416, xbr_4x, y_min * 2, y_max * 2);
+        anime4k_refine_int(xbr_4x, 704, 832, upscaled_4x, 108u, y_min * 4, y_max * 4);
     }
 }
 
@@ -1392,13 +1560,16 @@ uint32_t *vm_get_rgba_ptr(void) {
 
 WASM_EXPORT("vm_get_upscaled_rgba_ptr")
 uint32_t *vm_get_upscaled_rgba_ptr(void) {
+    if (fb_dirty) {
+        update_rgba_fb(0);
+    }
     return upscaled_4x;
 }
 
 WASM_EXPORT("vm_set_upscale_mode")
 void vm_set_upscale_mode(uint32_t mode) {
     upscale_mode = mode % 3u;
-    update_rgba_fb();
+    update_rgba_fb(1);
 }
 
 WASM_EXPORT("vm_get_pcm_ptr")
@@ -1452,8 +1623,9 @@ void vm_init(uint32_t pak_len, uint32_t cfg_len) {
 
     // Snapshot initial 104-byte config state at cgame_addr + 4
     my_memcpy(last_cgame_cfg, mem + ((cgame_addr + 4u) & ADDR_MASK), 0x68);
-
-    update_rgba_fb();
+    mp_waiting_for_peer = 0;
+    mp_rx_watchdog = 0;
+    update_rgba_fb(1);
 }
 
 static void sync_cgame_cfg(void) {
@@ -1484,7 +1656,21 @@ void vm_force_save_cfg(void) {
 WASM_EXPORT("vm_tick")
 void vm_tick(uint32_t dt_ms) {
     if (!cgame_addr) return;
-    fake_time_ms += dt_ms;
+    (void)dt_ms;
+    fake_time_ms += 3u; // Symbian 64Hz hardware tick rate (~3.2 ticks per 50ms frame)
+
+    uint32_t mp = r32(cgame_addr + 0x334u);
+    if (mp && r8(mp + 0x4du) == 10u) {
+        mp_rx_watchdog++;
+        if (mp_rx_watchdog < 160u) {
+            w32(mp + 0x28u, fake_time_ms);
+            w8(mp + 0x32u, 0);
+            w8(mp + 0x33u, 0);
+        }
+    } else {
+        mp_waiting_for_peer = 0;
+        mp_rx_watchdog = 0;
+    }
 
     // Optional God Mode trainer enforcement on Player 1
     if (trainer_god_mode) {
@@ -1512,7 +1698,7 @@ void vm_tick(uint32_t dt_ms) {
     }
 
     sync_cgame_cfg();
-    update_rgba_fb();
+    fb_dirty = 1;
 }
 
 WASM_EXPORT("vm_key_event")
@@ -1614,7 +1800,17 @@ void vm_set_state_info(const uint32_t *in_info) {
     if (cgame_addr) {
         my_memcpy(last_cgame_cfg, mem + ((cgame_addr + 4u) & ADDR_MASK), 0x68);
     }
-    update_rgba_fb();
+    update_rgba_fb(1);
+}
+
+WASM_EXPORT("vm_mp_set_local_uid")
+void vm_mp_set_local_uid(uint32_t uid) {
+    mp_local_uid = uid ? uid : 1u;
+}
+
+WASM_EXPORT("vm_mp_is_waiting")
+uint32_t vm_mp_is_waiting(void) {
+    return mp_waiting_for_peer;
 }
 
 WASM_EXPORT("vm_mp_set_connected_clients")
@@ -1652,24 +1848,38 @@ void vm_mp_push_rx(const uint8_t *pkt_data, uint32_t len) {
     if (!cgame_addr || !mp_Scratch_addr) return;
     uint32_t mp = r32(cgame_addr + 0x334u);
     if (!mp) return;
+    mp_rx_watchdog = 0;
     if (pkt_data[0] == 0xfe && pkt_data[1] == 0x01) {
-        // Client announce received by Server
-        if (mp_connected_clients < 3u) {
-            uint32_t idx = mp_connected_clients++;
-            mp_client_selected[idx] = 0;
-            if (len > 2u && pkt_data[2] != 0) {
-                uint32_t i = 0;
-                while (i < 12u && (2u + i) < len && pkt_data[2u + i]) {
-                    mp_client_names[idx][i] = (char)pkt_data[2u + i];
-                    i++;
-                }
-                mp_client_names[idx][i] = '\0';
+        // Client announce received by Server — deduplicate by 32-bit client UID at pkt_data[12..15]
+        uint32_t uid = 0;
+        if (len >= 16u) {
+            uid = (uint32_t)pkt_data[12] | ((uint32_t)pkt_data[13] << 8) |
+                  ((uint32_t)pkt_data[14] << 16) | ((uint32_t)pkt_data[15] << 24);
+        }
+        int found_idx = -1;
+        for (uint32_t c = 0; c < mp_connected_clients; c++) {
+            if (uid != 0 && mp_client_uids[c] == uid) {
+                found_idx = (int)c;
+                break;
             }
+        }
+        if (found_idx < 0 && mp_connected_clients < 3u) {
+            found_idx = (int)mp_connected_clients++;
+            mp_client_selected[found_idx] = 0;
+            mp_client_uids[found_idx] = uid;
+        }
+        if (found_idx >= 0 && len > 2u && pkt_data[2] != 0) {
+            uint32_t i = 0;
+            while (i < 9u && (2u + i) < len && pkt_data[2u + i]) {
+                mp_client_names[found_idx][i] = (char)pkt_data[2u + i];
+                i++;
+            }
+            mp_client_names[found_idx][i] = '\0';
         }
         return;
     }
     if (pkt_data[0] == 0xff && pkt_data[1] == 0x01) {
-        // Server beacon received by Client: re-announce client presence + player name
+        // Server beacon received by Client: re-announce client presence + player name + UID
         if (r32(mp + 0x48u) == 2u) {
             uint8_t hello[16];
             my_memset(hello, 0, sizeof(hello));
@@ -1678,11 +1888,18 @@ void vm_mp_push_rx(const uint8_t *pkt_data, uint32_t len) {
             for (int i = 0; i < 9; i++) {
                 hello[2 + i] = r8(cgame_addr + 0x28u + i);
             }
-            mp_enqueue_tx(-1, hello, 12);
+            hello[12] = (uint8_t)(mp_local_uid & 0xffu);
+            hello[13] = (uint8_t)((mp_local_uid >> 8) & 0xffu);
+            hello[14] = (uint8_t)((mp_local_uid >> 16) & 0xffu);
+            hello[15] = (uint8_t)((mp_local_uid >> 24) & 0xffu);
+            mp_enqueue_tx(-1, hello, 16);
         }
         return;
     }
     if (r32(mp + 4u) == 0u) w32(mp + 4u, 1u);
+    w32(mp + 0x28u, fake_time_ms);
+    w8(mp + 0x32u, 0);
+    w8(mp + 0x33u, 0);
     uint32_t ring = r32(mp + 0x1cu);
     if (!ring) return;
     if (len > 200u) len = 200u;

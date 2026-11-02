@@ -1121,6 +1121,7 @@
       // Multiplayer Network Bridge (BroadcastChannel + WebRTC PeerJS + LAN WebSocket)
       const MP_BC_CHANNEL = "explode_arena_s60_bt_netplay_v1";
       const mpNodeId = Math.random().toString(36).slice(2, 10);
+      const mpLocalUidU32 = ((Math.random() * 0xfffffffe) >>> 0) + 1;
       let mpBroadcast = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel(MP_BC_CHANNEL) : null;
       let mpWs = null;
       let mpPeer = null;
@@ -1128,6 +1129,9 @@
       let mpTxCount = 0;
       let mpRxCount = 0;
       let mpTransportLabel = "BroadcastChannel";
+      let inVmStep = false;
+      let needsCanvasRender = false;
+      let framesCounter = 0;
 
       function updateMpStatusUi() {
         const netEl = document.getElementById("mp-net-status");
@@ -1154,6 +1158,22 @@
         badge.textContent = `BT: ${roleStr} (${stateNames[state] || "State " + state})`;
       }
 
+      function stepVmOnce() {
+        if (inVmStep || paused || !running || !wasmExports) return false;
+        inVmStep = true;
+        try {
+          wasmExports.vm_tick(50);
+          pumpMultiplayerTx();
+          tickCounter++;
+          flushPendingKeyUps();
+          framesCounter++;
+          needsCanvasRender = true;
+          return true;
+        } finally {
+          inVmStep = false;
+        }
+      }
+
       function deliverMultiplayerRx(pktBytes) {
         if (!wasmExports || !running || !pktBytes || pktBytes.length === 0) return;
         const rxPtr = wasmExports.vm_get_code_buf() + 0x00f18200;
@@ -1162,6 +1182,10 @@
         memU8.set(pktBytes.subarray(0, len), rxPtr);
         wasmExports.vm_mp_push_rx(rxPtr, len);
         mpRxCount++;
+        // If VM was stalled waiting for a lockstep packet (or tab is in background), step immediately!
+        if (!paused && ((wasmExports.vm_mp_is_waiting && wasmExports.vm_mp_is_waiting()) || document.hidden)) {
+          stepVmOnce();
+        }
         updateMpStatusUi();
       }
 
@@ -1593,28 +1617,35 @@
         loopStarted = true;
         let lastTime = performance.now();
         let acc = 0;
-        let frames = 0;
         let fpsTimer = lastTime;
+
+        // Background-tab fallback timer so unfocused/minimized windows never stall multiplayer lockstep
+        setInterval(() => {
+          if (document.hidden && !paused && running && wasmExports) {
+            stepVmOnce();
+          }
+        }, 50);
 
         function loop(now) {
           requestAnimationFrame(loop);
-          const dt = Math.min(now - lastTime, 200);
+          const dt = Math.min(now - lastTime, 100);
           lastTime = now;
           if (paused || !running || !wasmExports) return;
 
           acc += dt * speedMult;
           const stepMs = 50;
-          let stepped = false;
-          while (acc >= stepMs) {
-            wasmExports.vm_tick(stepMs);
-            pumpMultiplayerTx();
-            tickCounter++;
-            flushPendingKeyUps();
+          const inMp = wasmExports.vm_mp_get_role && wasmExports.vm_mp_get_role() !== 0;
+          const maxSteps = inMp ? 1 : 2;
+          let stepsRun = 0;
+          while (acc >= stepMs && stepsRun < maxSteps) {
+            stepVmOnce();
             acc -= stepMs;
-            frames++;
-            stepped = true;
+            stepsRun++;
           }
-          if (stepped) {
+          if (acc >= stepMs) acc = 0;
+
+          if (needsCanvasRender && !document.hidden) {
+            needsCanvasRender = false;
             renderFrameFromWasm();
             updateMpStatusUi();
             if (wasmExports.vm_consume_cfg_dirty()) {
@@ -1622,9 +1653,9 @@
             }
           }
           if (now - fpsTimer >= 1000) {
-            const fps = (frames * 1000) / (now - fpsTimer);
+            const fps = (framesCounter * 1000) / (now - fpsTimer);
             document.getElementById("fps-counter").textContent = `${fps.toFixed(1)} FPS (704\u00d7832 HD)`;
-            frames = 0;
+            framesCounter = 0;
             fpsTimer = now;
           }
         }
@@ -1650,6 +1681,9 @@
           const memU8 = new Uint8Array(wasmMemory.buffer);
           memU8.set(parsed.codeBytes, wasmExports.vm_get_code_buf());
           memU8.set(parsed.pakBytes, wasmExports.vm_get_pak_buf());
+          if (wasmExports.vm_mp_set_local_uid) {
+            wasmExports.vm_mp_set_local_uid(mpLocalUidU32);
+          }
 
           const savedCfg = loadSavedCfg();
           if (savedCfg) {
@@ -1861,6 +1895,9 @@
         const memU8 = new Uint8Array(wasmMemory.buffer);
         memU8.set(currentParsedSis.codeBytes, wasmExports.vm_get_code_buf());
         memU8.set(currentParsedSis.pakBytes, wasmExports.vm_get_pak_buf());
+        if (wasmExports.vm_mp_set_local_uid) {
+          wasmExports.vm_mp_set_local_uid(mpLocalUidU32);
+        }
         const savedCfg = loadSavedCfg();
         if (savedCfg) {
           memU8.set(savedCfg, wasmExports.vm_get_cfg_buf());
