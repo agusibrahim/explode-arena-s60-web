@@ -1,5 +1,7 @@
 # Explode Arena (Symbian S60) — ARMv4T WebAssembly VM & Reverse Engineering Studio
 
+**Live Web Studio:** **[https://www.agusibrah.im/explode-arena-s60-web/](https://www.agusibrah.im/explode-arena-s60-web/)**
+
 A clean-room, **zero-game-data** WebAssembly port and reverse-engineering studio for **Explode Arena (v1.10, Symbian OS EPOC Release 6 / Nokia Series 60)** originally developed by **Infinite Dreams (2004)**.
 
 Instead of re-implementing an approximation of the game logic, this project executes the **original unmodified ARMv4T 32-bit machine code (`ExplodeArena.app`)** directly in the browser via a custom **22 KB WebAssembly Virtual Machine (`src/vm.c` → `vm.wasm`)** paired with **Symbian S60 High-Level Emulation (HLE)**, a **5-stage `De-Dither + 21-Tap xBR + Anime4K` 4× HD upscaler (`176×208` → `704×832`)**, and a **Hi-Fi 16 kHz 12-channel ProTracker MOD + WAV audio pipeline**.
