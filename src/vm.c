@@ -1,7 +1,11 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#ifdef __wasm__
 #define WASM_EXPORT(name) __attribute__((visibility("default"), export_name(name)))
+#else
+#define WASM_EXPORT(name) __attribute__((visibility("default")))
+#endif
 
 #define MEM_SIZE (16 * 1024 * 1024)
 #define ADDR_MASK (MEM_SIZE - 1)
@@ -1910,8 +1914,16 @@ void vm_key_event(uint32_t scan_code, uint32_t pressed) {
         w8(cgame_addr + 0x54 + 0x0b, 56);
     }
 
-    // In active gameplay (not in menu and not in pause overlay), allow Enter/FIRE (167) to also place bombs
-    if (scan_code == 167 && r8(cgame_addr + 0xa0) == 0 && r32(cgame_addr + 0xa4) == 0) {
+    int in_gameplay = (r8(cgame_addr + 0xa0) == 0 && r32(cgame_addr + 0xa4) == 0);
+
+    // Virtual GBA SP / Handheld action buttons:
+    // 200 (Button B): Place Bomb (53) in gameplay, or Confirm/Select (167) in menus
+    // 201 (Button A): Detonate Bomb (56) in gameplay, or Confirm/Select (167) in menus
+    if (scan_code == 200u) {
+        scan_code = in_gameplay ? r8(inp + 8 + 0x0a) : 167u;
+    } else if (scan_code == 201u) {
+        scan_code = in_gameplay ? r8(inp + 8 + 0x0b) : 167u;
+    } else if (scan_code == 167u && in_gameplay) {
         scan_code = r8(inp + 8 + 0x0a);
     }
 
@@ -1927,8 +1939,13 @@ void vm_mix_audio(void) {
     if (!cgame_addr) return;
     uint32_t audio = r32(cgame_addr + 0xb0);
     if (!audio) return;
+    uint32_t saved_r[16], sn = cpsr_n, sz = cpsr_z, sc = cpsr_c, sv = cpsr_v;
+    my_memcpy(saved_r, reg, sizeof(saved_r));
+    reg[13] = 0x10f80000u;
     reg[0] = audio;
     run_arm(0x10026f54u);
+    my_memcpy(reg, saved_r, sizeof(saved_r));
+    cpsr_n = sn; cpsr_z = sz; cpsr_c = sc; cpsr_v = sv;
 }
 
 WASM_EXPORT("vm_play_sfx")
@@ -2143,3 +2160,112 @@ void vm_apply_cheat(uint32_t cheat_id) {
         if (trainer_god_mode) w8(cgame_addr + 4, 1);
     }
 }
+
+#ifdef __ANDROID__
+#include <jni.h>
+
+JNIEXPORT void JNICALL
+Java_im_agusibrah_explodearena_jni_NativeVm_initVm(
+    JNIEnv *env, jclass clazz, jbyteArray codeArr, jbyteArray pakArr, jbyteArray cfgArr, jint uid
+) {
+    (void)clazz;
+    my_memset(mem, 0, sizeof(mem));
+    jsize codeLen = (*env)->GetArrayLength(env, codeArr);
+    if (codeLen > 0 && (size_t)codeLen <= sizeof(mem)) {
+        (*env)->GetByteArrayRegion(env, codeArr, 0, codeLen, (jbyte *)mem);
+    }
+    jsize pakLen = (*env)->GetArrayLength(env, pakArr);
+    if (pakLen > PAK_MAX_SIZE) pakLen = PAK_MAX_SIZE;
+    if (pakLen > 0) {
+        (*env)->GetByteArrayRegion(env, pakArr, 0, pakLen, (jbyte *)pak_data);
+    }
+    jsize cfgLen = cfgArr ? (*env)->GetArrayLength(env, cfgArr) : 0;
+    if (cfgLen > CFG_MAX_SIZE) cfgLen = CFG_MAX_SIZE;
+    if (cfgLen > 0) {
+        (*env)->GetByteArrayRegion(env, cfgArr, 0, cfgLen, (jbyte *)game_cfg);
+    }
+    vm_mp_set_local_uid((uint32_t)uid);
+    vm_init((uint32_t)pakLen, (uint32_t)cfgLen);
+}
+
+JNIEXPORT void JNICALL
+Java_im_agusibrah_explodearena_jni_NativeVm_tick(JNIEnv *env, jclass clazz, jint dtMs) {
+    (void)env; (void)clazz;
+    vm_tick((uint32_t)dtMs);
+}
+
+JNIEXPORT void JNICALL
+Java_im_agusibrah_explodearena_jni_NativeVm_keyEvent(JNIEnv *env, jclass clazz, jint scanCode, jint pressed) {
+    (void)env; (void)clazz;
+    vm_key_event((uint32_t)scanCode, (uint32_t)pressed);
+}
+
+JNIEXPORT void JNICALL
+Java_im_agusibrah_explodearena_jni_NativeVm_copyNativeRgba(JNIEnv *env, jclass clazz, jobject directBuf) {
+    (void)clazz;
+    uint8_t *dst = (uint8_t *)(*env)->GetDirectBufferAddress(env, directBuf);
+    if (!dst) return;
+    update_native_rgba_only();
+    my_memcpy(dst, rgba_fb, 176 * 208 * 4);
+}
+
+JNIEXPORT void JNICALL
+Java_im_agusibrah_explodearena_jni_NativeVm_mixAudio(JNIEnv *env, jclass clazz, jshortArray outPcm) {
+    (void)clazz;
+    vm_mix_audio();
+    (*env)->SetShortArrayRegion(env, outPcm, 0, 768, (const jshort *)pcm_out);
+}
+
+JNIEXPORT void JNICALL
+Java_im_agusibrah_explodearena_jni_NativeVm_applyCheat(JNIEnv *env, jclass clazz, jint cheatId) {
+    (void)env; (void)clazz;
+    vm_apply_cheat((uint32_t)cheatId);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_im_agusibrah_explodearena_jni_NativeVm_consumeCfgDirty(JNIEnv *env, jclass clazz, jbyteArray outCfg104) {
+    (void)clazz;
+    if (!vm_consume_cfg_dirty()) return JNI_FALSE;
+    (*env)->SetByteArrayRegion(env, outCfg104, 0, 0x68, (const jbyte *)game_cfg);
+    return JNI_TRUE;
+}
+
+JNIEXPORT jint JNICALL
+Java_im_agusibrah_explodearena_jni_NativeVm_mpGetRole(JNIEnv *env, jclass clazz) {
+    (void)env; (void)clazz;
+    return (jint)vm_mp_get_role();
+}
+
+JNIEXPORT jint JNICALL
+Java_im_agusibrah_explodearena_jni_NativeVm_mpGetState(JNIEnv *env, jclass clazz) {
+    (void)env; (void)clazz;
+    return (jint)vm_mp_get_state();
+}
+
+JNIEXPORT jboolean JNICALL
+Java_im_agusibrah_explodearena_jni_NativeVm_mpIsWaiting(JNIEnv *env, jclass clazz) {
+    (void)env; (void)clazz;
+    return vm_mp_is_waiting() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jint JNICALL
+Java_im_agusibrah_explodearena_jni_NativeVm_mpPopTx(JNIEnv *env, jclass clazz, jbyteArray outPayload) {
+    (void)clazz;
+    uint8_t slot[MP_PKT_SIZE];
+    if (!vm_mp_pop_tx(slot)) return 0;
+    int len = slot[1];
+    if (len > 200) len = 200;
+    (*env)->SetByteArrayRegion(env, outPayload, 0, len, (const jbyte *)(slot + 2));
+    return (jint)len;
+}
+
+JNIEXPORT void JNICALL
+Java_im_agusibrah_explodearena_jni_NativeVm_mpPushRx(JNIEnv *env, jclass clazz, jbyteArray inPayload, jint len) {
+    (void)clazz;
+    if (len <= 0 || len > 200) return;
+    uint8_t buf[200];
+    (*env)->GetByteArrayRegion(env, inPayload, 0, len, (jbyte *)buf);
+    vm_mp_push_rx(buf, (uint32_t)len);
+}
+#endif
+

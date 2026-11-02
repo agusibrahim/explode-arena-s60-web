@@ -291,84 +291,63 @@ with open(os.path.join(REPO_DIR, "index.html"), "r") as f:
     html = f.read()
 
 android_css_extra = """
-    /* Android APK Handheld-First Fullscreen Layout */
+    /* Android APK GBA SP Clamshell Fullscreen Layout */
     body.android-apk .topbar {
-      padding: 6px 12px;
-    }
-    body.android-apk .brand-badge,
-    body.android-apk .brand-sub,
-    body.android-apk #pkg-uid-label {
       display: none;
-    }
-    body.android-apk .brand-title {
-      font-size: 13px;
     }
     body.android-apk .workspace {
-      padding: 6px 8px 10px;
-      gap: 10px;
+      padding: 4px 6px 8px;
+      gap: 8px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    body.android-apk .handheld-column {
+      width: 100%;
     }
     body.android-apk .nokia-chassis {
-      padding: 10px 12px 14px;
-      border-radius: 22px;
+      max-width: 440px;
+      width: 100%;
     }
-    body.android-apk .earpiece-row {
-      display: none;
+    body.android-apk .sp-upper-lid {
+      padding: 10px 12px 10px;
     }
     body.android-apk .screen-bezel {
-      padding: 6px;
-      border-radius: 12px;
+      padding: 8px 10px 10px;
     }
     body.android-apk .canvas-wrap {
       width: 100%;
-      max-width: 340px;
+      max-width: 330px;
       height: auto;
-      max-height: 49dvh;
+      max-height: 45dvh;
+    }
+    body.android-apk .sp-hinge {
+      height: 28px;
+    }
+    body.android-apk .sp-lower-deck {
+      padding: 12px 16px 18px;
     }
     body.android-apk .studio-deck {
       display: none;
+      width: 100%;
+      max-width: 440px;
     }
     body.android-apk.drawer-open .studio-deck {
       display: flex;
-    }
-    .apk-drawer-btn {
-      background: rgba(6, 182, 212, 0.16);
-      border: 1px solid rgba(6, 182, 212, 0.45);
-      color: #38bdf8;
-      font-family: var(--font-mono);
-      font-size: 11px;
-      font-weight: 700;
-      padding: 4px 10px;
-      border-radius: 999px;
-      cursor: pointer;
     }
 """
 
 html = html.replace("</style>", android_css_extra + "\n  </style>")
 html = html.replace("<body>", '<body class="android-apk">')
 html = html.replace(
-    '<div class="status-pill">\n        <span id="fps-counter">0.0 FPS (704&times;832 HD)</span>\n      </div>',
-    '<div class="status-pill"><span id="fps-counter">60 FPS GPU</span></div>\n      <button class="apk-drawer-btn" id="btn-apk-drawer">&#9881; MENU / MP</button>'
-)
-html = html.replace(
     '<script src="js/vm_wasm.js"></script>',
     '<script src="js/builtin_sis.js"></script>\n  <script src="js/vm_wasm.js"></script>'
 )
 html = html.replace(
-    "window.addEventListener(\"beforeunload\"",
-    """window.__triggerRightSoftkey = () => { if (running) { hapticPulse(8); pulseKey(165); } };
-      const apkDrawerBtn = document.getElementById("btn-apk-drawer");
-      if (apkDrawerBtn) {
-        apkDrawerBtn.addEventListener("click", () => {
-          const open = document.body.classList.toggle("drawer-open");
-          apkDrawerBtn.innerHTML = open ? "&#10005; CLOSE MENU" : "&#9881; MENU / MP";
-          if (open) {
-            setTimeout(() => document.querySelector(".studio-deck")?.scrollIntoView({ behavior: "smooth" }), 50);
-          } else {
-            window.scrollTo({ top: 0, behavior: "smooth" });
-          }
-        });
-      }
-      window.addEventListener("beforeunload\""""
+    'document.getElementById("btn-toggle-numpad").addEventListener("click", (e) => {',
+    '''window.__triggerRightSoftkey = () => { if (running) { hapticPulse(8); pulseKey(165); } };
+      document.getElementById("btn-toggle-numpad").addEventListener("click", (e) => {
+        document.body.classList.toggle("drawer-open");'''
 )
 
 with open(f"{WORK}/assets/index.html", "w") as f:

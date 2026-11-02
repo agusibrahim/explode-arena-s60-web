@@ -157,63 +157,42 @@
 
     .nokia-chassis {
       width: 100%;
-      max-width: 550px;
-      background: linear-gradient(165deg, #242b38 0%, #161b24 55%, #10141b 100%);
-      border: 1px solid rgba(255, 255, 255, 0.14);
-      border-radius: 34px;
-      padding: 20px 22px 24px;
-      box-shadow:
-        0 28px 60px rgba(0, 0, 0, 0.65),
-        inset 0 1px 1px rgba(255, 255, 255, 0.18),
-        inset 0 -4px 12px rgba(0, 0, 0, 0.6);
+      max-width: 470px;
+      background: transparent;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
       position: relative;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
       transition: max-width 0.2s ease;
     }
 
     .workspace.theater-mode .nokia-chassis {
-      max-width: 760px;
+      max-width: 740px;
     }
 
-    .earpiece-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 14px;
-      padding: 0 10px;
-    }
-
-    .nokia-logo {
-      font-family: var(--font-display);
-      font-weight: 700;
-      font-size: 13px;
-      letter-spacing: 0.22em;
-      color: #cbd5e1;
-      text-transform: uppercase;
-    }
-
-    .earpiece-slot {
-      width: 56px;
-      height: 5px;
-      border-radius: 999px;
-      background: #090b0e;
-      box-shadow: inset 0 1px 2px rgba(0,0,0,0.9), 0 1px 0 rgba(255,255,255,0.1);
-    }
-
-    .s60-model-tag {
-      font-family: var(--font-mono);
-      font-size: 11px;
-      color: var(--accent-amber);
-      letter-spacing: 0.06em;
+    /* GBA SP Upper Clamshell Lid */
+    .sp-upper-lid {
+      background: linear-gradient(180deg, #1b1b1f 0%, #141417 100%);
+      border: 2px solid #28282e;
+      border-bottom-color: #0b0b0d;
+      border-radius: 30px 30px 10px 10px;
+      padding: 14px 16px 12px;
+      box-shadow:
+        0 20px 50px rgba(0, 0, 0, 0.75),
+        inset 0 1px 1px rgba(255, 255, 255, 0.12);
     }
 
     .screen-bezel {
-      background: #0a0c10;
-      border: 2px solid #2d3646;
-      border-radius: 16px;
-      padding: 14px;
+      background: #000000;
+      border: 2px solid #0e0e11;
+      border-radius: 20px;
+      padding: 12px 12px 14px;
       box-shadow:
-        inset 0 4px 14px rgba(0, 0, 0, 0.85),
-        0 1px 0 rgba(255, 255, 255, 0.08);
+        inset 0 4px 14px rgba(0, 0, 0, 0.95),
+        0 1px 0 rgba(255, 255, 255, 0.05);
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -224,11 +203,369 @@
       width: 100%;
       display: flex;
       justify-content: space-between;
-      font-family: var(--font-mono);
+      font-family: var(--font-display);
+      font-weight: 700;
       font-size: 10px;
-      color: #64748b;
+      letter-spacing: 0.06em;
+      color: #686b73;
       margin-bottom: 8px;
+      padding: 0 6px;
+      text-transform: uppercase;
+    }
+
+    .sp-brand-logo {
+      margin-top: 12px;
+      font-family: var(--font-display);
+      font-weight: 800;
+      font-style: italic;
+      font-size: 15px;
+      letter-spacing: 0.04em;
+      color: #e2e8f0;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+    }
+
+    .sp-brand-logo span.sp-suffix {
+      font-style: normal;
+      font-weight: 600;
+      font-size: 16px;
+      letter-spacing: 0.1em;
+      color: #cbd5e1;
+    }
+
+    /* GBA SP Cylindrical 3D Hinge */
+    .sp-hinge {
+      height: 36px;
+      margin: 0 2px;
+      background: linear-gradient(180deg, #09090b 0%, #2b2b30 28%, #1f1f24 62%, #08080a 100%);
+      border-left: 2px solid #26262b;
+      border-right: 2px solid #26262b;
+      position: relative;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.8);
+      display: flex;
+      justify-content: space-between;
+      align-items: stretch;
+    }
+
+    .sp-hinge-cap {
+      width: 14%;
+      border-right: 2px solid #0b0b0e;
+      background: linear-gradient(180deg, #0b0b0d 0%, #25252a 30%, #19191d 65%, #070709 100%);
+    }
+
+    .sp-hinge-cap.right {
+      border-right: none;
+      border-left: 2px solid #0b0b0e;
+    }
+
+    .sp-hinge-seam {
+      width: 2px;
+      background: #0a0a0d;
+      box-shadow: 1px 0 0 rgba(255, 255, 255, 0.06);
+    }
+
+    /* GBA SP Lower Controller Deck */
+    .sp-lower-deck {
+      background: linear-gradient(180deg, #1f1f23 0%, #19191d 65%, #141418 100%);
+      border: 2px solid #2a2a30;
+      border-top-color: #2f2f36;
+      border-radius: 10px 10px 36px 36px;
+      padding: 16px 20px 24px;
+      position: relative;
+      box-shadow:
+        0 28px 60px rgba(0, 0, 0, 0.8),
+        inset 0 2px 3px rgba(255, 255, 255, 0.08),
+        inset 0 -6px 14px rgba(0, 0, 0, 0.7);
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    /* Right-edge Power LED */
+    .sp-led-strip {
+      position: absolute;
+      right: 0;
+      top: 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      align-items: flex-end;
+    }
+
+    .sp-led-light {
+      width: 9px;
+      height: 12px;
+      border-radius: 2px 0 0 2px;
+      background: #ff2a2a;
+      box-shadow: 0 0 10px #ff2a2a, 0 0 4px #ff6b6b;
+    }
+
+    .sp-led-light.connected {
+      background: #10b981;
+      box-shadow: 0 0 10px #10b981, 0 0 4px #34d399;
+    }
+
+    .sp-led-off {
+      width: 9px;
+      height: 11px;
+      border-radius: 2px 0 0 2px;
+      background: #111114;
+      border: 1px solid #27272c;
+      border-right: none;
+    }
+
+    /* Top-Center Small Round Gear / Brightness Button */
+    .sp-top-center-row {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 4px;
+    }
+
+    .sp-small-well {
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      background: #121215;
+      box-shadow: inset 0 3px 6px rgba(0, 0, 0, 0.9), 0 1px 0 rgba(255, 255, 255, 0.07);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .sp-small-btn {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 30%, #52545b 0%, #393b40 70%, #282a2e 100%);
+      border: 1.5px solid rgba(255, 255, 255, 0.22);
+      color: #18191c;
+      font-size: 14px;
+      font-weight: 800;
+      padding: 0;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 3px 6px rgba(0, 0, 0, 0.7), inset 0 1px 1px rgba(255, 255, 255, 0.25);
+      transition: transform 0.04s ease;
+    }
+
+    .sp-small-btn:active,
+    .sp-small-btn.active {
+      transform: translateY(1.5px) scale(0.95);
+      border-color: var(--accent-amber);
+      box-shadow: 0 0 10px var(--accent-amber-glow);
+    }
+
+    /* Main GBA SP D-Pad + B/A Controls Row */
+    .sp-main-controls {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 2px;
       padding: 0 2px;
+    }
+
+    /* Left Recessed Circular Well + Classic '+' Cross D-Pad */
+    .sp-dpad-well {
+      width: 158px;
+      height: 158px;
+      border-radius: 50%;
+      background: radial-gradient(circle, #16161a 0%, #111114 75%, #19191e 100%);
+      box-shadow:
+        inset 0 5px 14px rgba(0, 0, 0, 0.92),
+        0 1px 1px rgba(255, 255, 255, 0.07);
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      touch-action: none;
+    }
+
+    .sp-cross-wrap {
+      width: 112px;
+      height: 112px;
+      position: relative;
+      pointer-events: none;
+    }
+
+    .sp-cross-h,
+    .sp-cross-v {
+      position: absolute;
+      background: #43454b;
+      border-radius: 5px;
+      box-shadow:
+        0 4px 8px rgba(0, 0, 0, 0.75),
+        inset 0 1.5px 1px rgba(255, 255, 255, 0.28),
+        inset 0 -2px 2px rgba(0, 0, 0, 0.5);
+    }
+
+    .sp-cross-h {
+      top: 37px;
+      left: 4px;
+      width: 104px;
+      height: 38px;
+    }
+
+    .sp-cross-v {
+      left: 37px;
+      top: 4px;
+      width: 38px;
+      height: 104px;
+    }
+
+    .sp-cross-center-patch {
+      position: absolute;
+      top: 37px;
+      left: 37px;
+      width: 38px;
+      height: 38px;
+      background: #43454b;
+      z-index: 2;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .sp-cross-dimple {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 65% 65%, #4d5057 0%, #34363b 80%);
+      box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.55);
+    }
+
+    .dpad-btn {
+      position: absolute;
+      width: 38px;
+      height: 38px;
+      background: transparent;
+      border: none;
+      box-shadow: none;
+      color: rgba(25, 26, 30, 0.65);
+      font-size: 13px;
+      z-index: 3;
+      padding: 0;
+      pointer-events: none;
+    }
+
+    .dpad-btn.active {
+      background: rgba(245, 158, 11, 0.32);
+      color: #fbbf24;
+      border-radius: 5px;
+      box-shadow: 0 0 12px rgba(245, 158, 11, 0.65);
+    }
+
+    .dpad-up    { top: 4px; left: 37px; }
+    .dpad-down  { bottom: 4px; left: 37px; }
+    .dpad-left  { left: 4px; top: 37px; }
+    .dpad-right { right: 4px; top: 37px; }
+    .dpad-center {
+      top: 37px;
+      left: 37px;
+      width: 38px;
+      height: 38px;
+      opacity: 0;
+    }
+
+    /* Right Recessed Angled Pill Well + Circular B & A Buttons */
+    .sp-ab-well {
+      width: 158px;
+      height: 82px;
+      border-radius: 999px;
+      background: linear-gradient(180deg, #121216 0%, #17171c 100%);
+      box-shadow:
+        inset 0 5px 12px rgba(0, 0, 0, 0.92),
+        0 1px 1px rgba(255, 255, 255, 0.07);
+      transform: rotate(-24deg);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 15px;
+      touch-action: none;
+    }
+
+    .sp-ab-btn {
+      width: 54px;
+      height: 54px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 28%, #585a62 0%, #414349 65%, #2d2f34 100%);
+      border: 1.5px solid rgba(255, 255, 255, 0.25);
+      box-shadow:
+        0 5px 10px rgba(0, 0, 0, 0.8),
+        inset 0 1.5px 2px rgba(255, 255, 255, 0.3);
+      transform: rotate(24deg);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      cursor: pointer;
+    }
+
+    .sp-ab-btn span {
+      font-family: var(--font-display);
+      font-size: 22px;
+      font-weight: 700;
+      color: #232428;
+      text-shadow: 0 1px 0 rgba(255, 255, 255, 0.28), 0 -1px 1px rgba(0, 0, 0, 0.7);
+      line-height: 1;
+    }
+
+    .sp-ab-btn.active,
+    .sp-ab-btn:active {
+      transform: rotate(24deg) translateY(2px) scale(0.95);
+      background: radial-gradient(circle at 35% 28%, #6c6f78 0%, #4f5259 70%, #373940 100%);
+      border-color: var(--accent-amber);
+      box-shadow: 0 0 16px var(--accent-amber-glow), inset 0 2px 4px rgba(0, 0, 0, 0.6);
+    }
+
+    .sp-ab-btn.active span,
+    .sp-ab-btn:active span {
+      color: #fbbf24;
+    }
+
+    /* 4x4 Center Speaker Grille Dots */
+    .sp-speaker-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 6px);
+      gap: 10px;
+      justify-content: center;
+      margin: 8px auto 22px;
+    }
+
+    .sp-speaker-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #08080a;
+      box-shadow: inset 0 1px 2px rgba(0,0,0,0.95), 0 1px 0 rgba(255,255,255,0.07);
+    }
+
+    /* Bottom-Center Select (Soft L) & Start (Soft R) Recessed Buttons */
+    .sp-bottom-row {
+      display: flex;
+      justify-content: center;
+      gap: 38px;
+      align-items: center;
+    }
+
+    .sp-pill-col {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .sp-pill-label {
+      font-family: var(--font-display);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      color: #646770;
+      text-transform: uppercase;
     }
 
     .canvas-wrap {
@@ -906,106 +1243,137 @@
   </header>
 
   <main class="workspace">
-    <!-- Left Column: Nokia S60 Handheld Console -->
+    <!-- Left Column: GBA SP Dark Matte Clamshell Handheld Console -->
     <section class="handheld-column">
       <div class="nokia-chassis">
-        <div class="earpiece-row">
-          <span class="nokia-logo">NOKIA S60</span>
-          <div class="earpiece-slot"></div>
-          <span class="s60-model-tag">704&times;832 4&times; HD</span>
-        </div>
+        <!-- Upper Clamshell Lid -->
+        <div class="sp-upper-lid">
+          <div class="screen-bezel">
+            <div class="screen-meta-bar">
+              <span id="screen-mode-label">POWER ON</span>
+              <span id="cfg-save-indicator">BATTERY FULL</span>
+            </div>
 
-        <div class="screen-bezel">
-          <div class="screen-meta-bar">
-            <span id="screen-mode-label">xBR + Anime4K + De-Dither 4&times; (704&times;832)</span>
-            <span id="cfg-save-indicator">game.cfg: Ready</span>
-          </div>
-
-          <div class="canvas-wrap" id="canvas-container">
-            <canvas id="s60-screen" width="704" height="832"></canvas>
-            <div class="screen-overlay" id="boot-overlay">
-              <div class="dropzone-box" id="sis-dropzone">
-                <div class="overlay-title">Load Symbian S60 .SIS</div>
-                <div class="overlay-sub">
-                  Drop your <strong>Explode Arena</strong> Symbian S60 installation package (<code>.sis</code>) here or click below to unpack &amp; boot 100% client-side in WebAssembly.
+            <div class="canvas-wrap" id="canvas-container">
+              <canvas id="s60-screen" width="704" height="832"></canvas>
+              <div class="screen-overlay" id="boot-overlay">
+                <div class="dropzone-box" id="sis-dropzone">
+                  <div class="overlay-title">Load Symbian S60 .SIS</div>
+                  <div class="overlay-sub">
+                    Drop your <strong>Explode Arena</strong> Symbian S60 installation package (<code>.sis</code>) here or click below to unpack &amp; boot 100% client-side.
+                  </div>
+                  <div class="overlay-code">Expected UID1: 0x10015B92 (EPOC R6)</div>
+                  <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:center; margin-top:6px;">
+                    <button class="btn-primary" id="btn-choose-sis">&#128194; Select .SIS File</button>
+                    <button class="btn-secondary" id="btn-resume-cached" style="display:none;">&#9654; Boot Cached .SIS</button>
+                  </div>
+                  <div style="font-size:10px; color:var(--text-muted); margin-top:6px; line-height:1.4;">
+                    No game files are hosted in this repository. Supply <code>Explode_Arena.sis</code> from your personal backup.
+                  </div>
+                  <div id="sis-load-status" style="font-family:var(--font-mono); font-size:11px; color:#fbbf24; margin-top:4px;"></div>
                 </div>
-                <div class="overlay-code">Expected UID1: 0x10015B92 (EPOC R6)</div>
-                <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:center; margin-top:6px;">
-                  <button class="btn-primary" id="btn-choose-sis">&#128194; Select .SIS File</button>
-                  <button class="btn-secondary" id="btn-resume-cached" style="display:none;">&#9654; Boot Cached .SIS</button>
-                </div>
-                <div style="font-size:10px; color:var(--text-muted); margin-top:6px; line-height:1.4;">
-                  No game files are provided or hosted in this repository. Please obtain <code>Explode_Arena.sis</code> (S60v1/v2) from your personal backup or public Symbian software archives.
-                </div>
-                <div id="sis-load-status" style="font-family:var(--font-mono); font-size:11px; color:#fbbf24; margin-top:4px;"></div>
               </div>
             </div>
-          </div>
-        </div>
 
-        <!-- Ergonomic Handheld Controller (Continuous-Slide D-Pad + Arcade Action Pad) -->
-        <div class="nav-cluster" id="gamepad-surface">
-          <div class="softkey-bar">
-            <button class="hw-btn softkey" data-scan="164" title="Left Softkey: BACK / CANCEL (Q)">
-              <span>SOFT L</span>
-              <small>BACK [Q]</small>
-            </button>
-            <button class="hw-btn" id="btn-toggle-numpad" title="Toggle 0-9 Numpad for entering player name">
-              <span>123 KEY</span>
-              <small>Numpad</small>
-            </button>
-            <button class="hw-btn" data-scan="1" title="Backspace / Clear">
-              <span>CLEAR</span>
-              <small>Bksp</small>
-            </button>
-            <button class="hw-btn softkey softkey-right" data-scan="165" title="Right Softkey: PROCEED / PAUSE (E / Esc)">
-              <span>SOFT R</span>
-              <small>PROCEED [E]</small>
-            </button>
-          </div>
-
-          <div class="thumb-deck">
-            <!-- Left Thumb: Continuous Slide-to-Steer D-Pad -->
-            <div class="dpad-ring" id="dpad-touch-zone" title="Slide thumb smoothly to move in any direction">
-              <button class="hw-btn dpad-btn dpad-up" data-scan="16">&#9650;</button>
-              <button class="hw-btn dpad-btn dpad-down" data-scan="17">&#9660;</button>
-              <button class="hw-btn dpad-btn dpad-left" data-scan="14">&#9664;</button>
-              <button class="hw-btn dpad-btn dpad-right" data-scan="15">&#9654;</button>
-              <button class="hw-btn dpad-center" data-scan="167">SLIDE</button>
-            </div>
-
-            <!-- Right Thumb: Ergonomic Arcade Twin-Action Cluster -->
-            <div class="arcade-cluster" id="arcade-touch-zone">
-              <button class="hw-btn arcade-btn-ok" data-scan="167" title="Menu Select / Confirm (Enter)">
-                <span>SELECT</span>
-                <small>OK / Enter</small>
-              </button>
-              <button class="hw-btn arcade-btn-detonate" data-scan="56" title="Detonate Remote Bomb (Key 8 / Shift / X)">
-                <span>DET</span>
-                <small>B &bull; KEY 8</small>
-              </button>
-              <button class="hw-btn arcade-btn-bomb" data-scan="53" title="Place Bomb (Key 5 / Space / Z)">
-                <span>BOMB</span>
-                <small>A &bull; KEY 5</small>
-              </button>
+            <div class="sp-brand-logo">
+              <span>GAME BOY ADVANCE</span>
+              <span class="sp-suffix">SP</span>
             </div>
           </div>
         </div>
 
-        <!-- Collapsible Nokia Numpad (for Name Entry / Dialing) -->
-        <div class="numpad-grid" id="numpad-drawer">
-          <button class="hw-btn" data-scan="49"><span>1</span><small>.,-;0</small></button>
-          <button class="hw-btn" data-scan="50"><span>2</span><small>ABC</small></button>
-          <button class="hw-btn" data-scan="51"><span>3</span><small>DEF</small></button>
-          <button class="hw-btn" data-scan="52"><span>4</span><small>GHI</small></button>
-          <button class="hw-btn action-bomb" data-scan="53"><span>5 &bull; BOMB</span><small>JKL</small></button>
-          <button class="hw-btn" data-scan="54"><span>6</span><small>MNO</small></button>
-          <button class="hw-btn" data-scan="55"><span>7</span><small>PQRS</small></button>
-          <button class="hw-btn action-detonate" data-scan="56"><span>8 &bull; DET</span><small>TUV</small></button>
-          <button class="hw-btn" data-scan="57"><span>9</span><small>WXYZ</small></button>
-          <button class="hw-btn" id="btn-quick-skip"><span>&#9193;</span><small>Skip</small></button>
-          <button class="hw-btn" data-scan="48"><span>0</span><small>Space</small></button>
-          <button class="hw-btn" id="btn-quick-proceed"><span>OK/P</span><small>Proceed</small></button>
+        <!-- Middle 3D Cylindrical Clamshell Hinge -->
+        <div class="sp-hinge">
+          <div class="sp-hinge-cap"></div>
+          <div class="sp-hinge-seam"></div>
+          <div class="sp-hinge-cap right"></div>
+        </div>
+
+        <!-- Lower Clamshell Controller Deck -->
+        <div class="sp-lower-deck" id="gamepad-surface">
+          <!-- Right Edge Power LED -->
+          <div class="sp-led-strip">
+            <div class="sp-led-light" id="sp-power-led"></div>
+            <div class="sp-led-off"></div>
+          </div>
+
+          <!-- Top-Center Small Round Gear / Settings / Numpad Button -->
+          <div class="sp-top-center-row">
+            <div class="sp-small-well">
+              <button class="hw-btn sp-small-btn" id="btn-toggle-numpad" title="Toggle Numpad &amp; Settings Drawer">
+                <span>&#9728;</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Main Thumb Controls: Left '+' Cross D-Pad & Right Angled B/A Well -->
+          <div class="sp-main-controls">
+            <!-- Left Thumb: Recessed Circular Well + Classic '+' Cross D-Pad -->
+            <div class="sp-dpad-well" id="dpad-touch-zone" title="Slide thumb smoothly to steer">
+              <div class="sp-cross-wrap">
+                <div class="sp-cross-h"></div>
+                <div class="sp-cross-v"></div>
+                <div class="sp-cross-center-patch">
+                  <div class="sp-cross-dimple"></div>
+                </div>
+                <button class="hw-btn dpad-btn dpad-up" data-scan="16">&#9650;</button>
+                <button class="hw-btn dpad-btn dpad-down" data-scan="17">&#9660;</button>
+                <button class="hw-btn dpad-btn dpad-left" data-scan="14">&#9664;</button>
+                <button class="hw-btn dpad-btn dpad-right" data-scan="15">&#9654;</button>
+                <button class="hw-btn dpad-center" data-scan="167"></button>
+              </div>
+            </div>
+
+            <!-- Right Thumb: Recessed Angled Pill Well + B (Bomb) & A (Detonate) -->
+            <div class="sp-ab-well" id="arcade-touch-zone">
+              <button class="hw-btn sp-ab-btn" data-scan="200" title="B: Place Bomb in-game / Select in menu (Key 5 / Space)">
+                <span>B</span>
+              </button>
+              <button class="hw-btn sp-ab-btn" data-scan="201" title="A: Detonate Bomb in-game / Select in menu (Key 8 / Shift)">
+                <span>A</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Center 4x4 Speaker Grille Dots -->
+          <div class="sp-speaker-grid">
+            <div class="sp-speaker-dot"></div><div class="sp-speaker-dot"></div><div class="sp-speaker-dot"></div><div class="sp-speaker-dot"></div>
+            <div class="sp-speaker-dot"></div><div class="sp-speaker-dot"></div><div class="sp-speaker-dot"></div><div class="sp-speaker-dot"></div>
+            <div class="sp-speaker-dot"></div><div class="sp-speaker-dot"></div><div class="sp-speaker-dot"></div><div class="sp-speaker-dot"></div>
+            <div class="sp-speaker-dot"></div><div class="sp-speaker-dot"></div><div class="sp-speaker-dot"></div><div class="sp-speaker-dot"></div>
+          </div>
+
+          <!-- Bottom-Center SELECT (Soft L / Back) & START (Soft R / Proceed) -->
+          <div class="sp-bottom-row">
+            <div class="sp-pill-col">
+              <div class="sp-small-well">
+                <button class="hw-btn sp-small-btn" data-scan="164" title="SELECT / Left Softkey: BACK (Shortcut: Q)"></button>
+              </div>
+              <span class="sp-pill-label">SELECT</span>
+            </div>
+            <div class="sp-pill-col">
+              <div class="sp-small-well">
+                <button class="hw-btn sp-small-btn" data-scan="165" title="START / Right Softkey: PROCEED / PAUSE (Shortcut: E / Esc)"></button>
+              </div>
+              <span class="sp-pill-label">START</span>
+            </div>
+          </div>
+
+          <!-- Collapsible Nokia Numpad (for Name Entry / Dialing) -->
+          <div class="numpad-grid" id="numpad-drawer">
+            <button class="hw-btn" data-scan="49"><span>1</span><small>.,-;0</small></button>
+            <button class="hw-btn" data-scan="50"><span>2</span><small>ABC</small></button>
+            <button class="hw-btn" data-scan="51"><span>3</span><small>DEF</small></button>
+            <button class="hw-btn" data-scan="52"><span>4</span><small>GHI</small></button>
+            <button class="hw-btn action-bomb" data-scan="53"><span>5 &bull; BOMB</span><small>JKL</small></button>
+            <button class="hw-btn" data-scan="54"><span>6</span><small>MNO</small></button>
+            <button class="hw-btn" data-scan="55"><span>7</span><small>PQRS</small></button>
+            <button class="hw-btn action-detonate" data-scan="56"><span>8 &bull; DET</span><small>TUV</small></button>
+            <button class="hw-btn" data-scan="57"><span>9</span><small>WXYZ</small></button>
+            <button class="hw-btn" id="btn-quick-skip"><span>&#9193;</span><small>Skip</small></button>
+            <button class="hw-btn" data-scan="48"><span>0</span><small>Space</small></button>
+            <button class="hw-btn" id="btn-quick-proceed"><span>OK/P</span><small>Proceed</small></button>
+          </div>
         </div>
       </div>
     </section>
@@ -1375,7 +1743,14 @@
       let imgU32 = null;
 
       function initWebGLUpscaler() {
-        gl = canvas.getContext("webgl", { alpha: false, antialias: false, preserveDrawingBuffer: true });
+        gl = canvas.getContext("webgl", {
+          alpha: false,
+          antialias: false,
+          depth: false,
+          stencil: false,
+          preserveDrawingBuffer: false,
+          powerPreference: "high-performance"
+        });
         if (!gl) {
           ctx2d = canvas.getContext("2d", { alpha: false });
           imageData2d = ctx2d.createImageData(704, 832);
@@ -1645,7 +2020,7 @@
 
         audioCtx = new AudioContextClass();
         const outRate = audioCtx.sampleRate;
-        scriptNode = audioCtx.createScriptProcessor(1024, 0, 1);
+        scriptNode = audioCtx.createScriptProcessor(2048, 0, 1);
 
         bassFilter = audioCtx.createBiquadFilter();
         bassFilter.type = "lowshelf";
@@ -1715,17 +2090,18 @@
         updateAudioGraph();
       }
 
-      function renderFrameFromWasm() {
+      function renderFrameFromWasm(uploadNewTex = true) {
         if (!wasmExports) return;
         if (gl) {
-          // Hardware WebGL GPU Upscaler: uploads ONLY 176x208 native buffer (0.03ms CPU) and runs xBR+Anime4K on GPU!
-          const nativePtr = wasmExports.vm_get_rgba_ptr();
-          const srcU8 = new Uint8Array(wasmMemory.buffer, nativePtr, 176 * 208 * 4);
           gl.bindTexture(gl.TEXTURE_2D, glTex);
-          gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 176, 208, gl.RGBA, gl.UNSIGNED_BYTE, srcU8);
+          if (uploadNewTex) {
+            const nativePtr = wasmExports.vm_get_rgba_ptr();
+            const srcU8 = new Uint8Array(wasmMemory.buffer, nativePtr, 176 * 208 * 4);
+            gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 176, 208, gl.RGBA, gl.UNSIGNED_BYTE, srcU8);
+          }
           gl.uniform1i(glModeLoc, upscaleMode);
           gl.drawArrays(gl.TRIANGLES, 0, 6);
-        } else if (ctx2d) {
+        } else if (ctx2d && uploadNewTex) {
           const rgbaPtr = wasmExports.vm_get_upscaled_rgba_ptr();
           const srcU32 = new Uint32Array(wasmMemory.buffer, rgbaPtr, 704 * 832);
           imgU32.set(srcU32);
@@ -2156,11 +2532,13 @@
           if (!document.hidden) {
             if (needsCanvasRender) {
               needsCanvasRender = false;
-              renderFrameFromWasm();
+              renderFrameFromWasm(true);
               updateMpStatusUi();
               if (wasmExports.vm_consume_cfg_dirty()) {
                 saveCfgToStorage();
               }
+            } else if (gl) {
+              renderFrameFromWasm(false);
             }
             renderFrames++;
           }
@@ -2490,6 +2868,7 @@
 
       document.getElementById("btn-screenshot").addEventListener("click", () => {
         if (!running) return;
+        renderFrameFromWasm(true);
         const a = document.createElement("a");
         a.download = `explode-arena-s60-hd-${Date.now()}.png`;
         a.href = canvas.toDataURL("image/png");
