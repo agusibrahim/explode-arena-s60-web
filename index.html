@@ -1,0 +1,1907 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Explode Arena S60 — ARMv4T WebAssembly VM &amp; Reverse Engineering Studio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&amp;family=Space+Grotesk:wght@500;600;700&amp;family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg-base: #0b0d10;
+      --bg-surface: #12161c;
+      --bg-elevated: #181d25;
+      --border-subtle: rgba(255, 255, 255, 0.08);
+      --border-strong: rgba(255, 255, 255, 0.16);
+      --text-primary: #f1f5f9;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      --accent-amber: #f59e0b;
+      --accent-amber-glow: rgba(245, 158, 11, 0.22);
+      --accent-cyan: #06b6d4;
+      --accent-emerald: #10b981;
+      --accent-rose: #f43f5e;
+      --font-display: 'Space Grotesk', system-ui, sans-serif;
+      --font-sans: 'Inter', system-ui, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-base);
+      background-image:
+        radial-gradient(circle at 18% 12%, rgba(245, 158, 11, 0.07), transparent 38%),
+        radial-gradient(circle at 85% 20%, rgba(6, 182, 212, 0.06), transparent 42%),
+        linear-gradient(180deg, #0b0d10 0%, #090b0e 100%);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      min-height: 100vh;
+      line-height: 1.5;
+      overflow-x: hidden;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 24px;
+      border-bottom: 1px solid var(--border-subtle);
+      background: rgba(18, 22, 28, 0.85);
+      backdrop-filter: blur(12px);
+      position: sticky;
+      top: 0;
+      z-index: 40;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .brand-badge {
+      background: linear-gradient(135deg, #f59e0b 0%, #ea580c 100%);
+      color: #090b0e;
+      font-family: var(--font-mono);
+      font-weight: 700;
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      padding: 4px 8px;
+      border-radius: 4px;
+      text-transform: uppercase;
+    }
+
+    .brand-title {
+      font-family: var(--font-display);
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--text-primary);
+    }
+
+    .brand-sub {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .status-strip {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text-secondary);
+      flex-wrap: wrap;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 5px 10px;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-subtle);
+      border-radius: 6px;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent-amber);
+      box-shadow: 0 0 8px var(--accent-amber);
+    }
+
+    .dot.running {
+      background: var(--accent-emerald);
+      box-shadow: 0 0 8px var(--accent-emerald);
+    }
+
+    .workspace {
+      max-width: 1520px;
+      margin: 0 auto;
+      padding: 20px 24px;
+      display: grid;
+      grid-template-columns: minmax(480px, 560px) 1fr;
+      gap: 24px;
+      align-items: start;
+      transition: grid-template-columns 0.2s ease;
+    }
+
+    .workspace.theater-mode {
+      grid-template-columns: minmax(640px, 780px) 1fr;
+    }
+
+    @media (max-width: 1100px) {
+      .workspace,
+      .workspace.theater-mode {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .handheld-column {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .nokia-chassis {
+      width: 100%;
+      max-width: 550px;
+      background: linear-gradient(165deg, #242b38 0%, #161b24 55%, #10141b 100%);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 34px;
+      padding: 20px 22px 24px;
+      box-shadow:
+        0 28px 60px rgba(0, 0, 0, 0.65),
+        inset 0 1px 1px rgba(255, 255, 255, 0.18),
+        inset 0 -4px 12px rgba(0, 0, 0, 0.6);
+      position: relative;
+      transition: max-width 0.2s ease;
+    }
+
+    .workspace.theater-mode .nokia-chassis {
+      max-width: 760px;
+    }
+
+    .earpiece-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+      padding: 0 10px;
+    }
+
+    .nokia-logo {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 13px;
+      letter-spacing: 0.22em;
+      color: #cbd5e1;
+      text-transform: uppercase;
+    }
+
+    .earpiece-slot {
+      width: 56px;
+      height: 5px;
+      border-radius: 999px;
+      background: #090b0e;
+      box-shadow: inset 0 1px 2px rgba(0,0,0,0.9), 0 1px 0 rgba(255,255,255,0.1);
+    }
+
+    .s60-model-tag {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--accent-amber);
+      letter-spacing: 0.06em;
+    }
+
+    .screen-bezel {
+      background: #0a0c10;
+      border: 2px solid #2d3646;
+      border-radius: 16px;
+      padding: 14px;
+      box-shadow:
+        inset 0 4px 14px rgba(0, 0, 0, 0.85),
+        0 1px 0 rgba(255, 255, 255, 0.08);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      position: relative;
+    }
+
+    .screen-meta-bar {
+      width: 100%;
+      display: flex;
+      justify-content: space-between;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: #64748b;
+      margin-bottom: 8px;
+      padding: 0 2px;
+    }
+
+    .canvas-wrap {
+      position: relative;
+      width: 480px;
+      height: 567px;
+      max-width: 100%;
+      aspect-ratio: 176 / 208;
+      background: #06080b;
+      border-radius: 6px;
+      overflow: hidden;
+      box-shadow: 0 0 28px rgba(0, 0, 0, 0.92);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      transition: width 0.2s ease, height 0.2s ease;
+    }
+
+    .workspace.theater-mode .canvas-wrap {
+      width: 704px;
+      height: 832px;
+    }
+
+    canvas#s60-screen {
+      width: 100%;
+      height: 100%;
+      display: block;
+      image-rendering: auto;
+    }
+
+    canvas#s60-screen.pixelated-mode {
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+    }
+
+    .canvas-wrap.lcd-grid::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background-image:
+        linear-gradient(to right, rgba(0, 0, 0, 0.22) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(0, 0, 0, 0.22) 1px, transparent 1px);
+      background-size: 2px 2px;
+      z-index: 2;
+    }
+
+    .screen-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(9, 11, 15, 0.92);
+      backdrop-filter: blur(6px);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      text-align: center;
+      z-index: 10;
+      transition: opacity 0.2s ease;
+    }
+
+    .screen-overlay.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .dropzone-box {
+      width: 100%;
+      max-width: 360px;
+      border: 2px dashed rgba(245, 158, 11, 0.45);
+      background: rgba(24, 29, 37, 0.75);
+      border-radius: 14px;
+      padding: 24px 18px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      transition: border-color 0.15s ease, background 0.15s ease;
+    }
+
+    .dropzone-box.dragover {
+      border-color: var(--accent-cyan);
+      background: rgba(6, 182, 212, 0.12);
+    }
+
+    .overlay-title {
+      font-family: var(--font-display);
+      font-size: 19px;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .overlay-sub {
+      font-size: 12px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+
+    .overlay-code {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--accent-cyan);
+      background: rgba(6, 182, 212, 0.1);
+      border: 1px solid rgba(6, 182, 212, 0.25);
+      padding: 4px 10px;
+      border-radius: 6px;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+      color: #090b0e;
+      border: none;
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 13px;
+      padding: 10px 20px;
+      border-radius: 8px;
+      cursor: pointer;
+      box-shadow: 0 4px 16px rgba(245, 158, 11, 0.35);
+      transition: transform 0.1s ease, filter 0.15s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .btn-primary:hover {
+      filter: brightness(1.08);
+    }
+
+    .btn-primary:active {
+      transform: translateY(1px);
+    }
+
+    .nav-cluster {
+      display: grid;
+      grid-template-columns: 1fr 132px 1fr;
+      align-items: center;
+      gap: 12px;
+      margin-top: 16px;
+      margin-bottom: 14px;
+    }
+
+    .softkey-col {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .hw-btn {
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: manipulation;
+      background: linear-gradient(180deg, #2b3444 0%, #1d2430 100%);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-bottom-color: rgba(0, 0, 0, 0.5);
+      color: var(--text-primary);
+      border-radius: 10px;
+      padding: 10px 8px;
+      font-family: var(--font-display);
+      font-weight: 600;
+      font-size: 12px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      box-shadow: 0 3px 6px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+      transition: transform 0.06s ease, background 0.1s ease, box-shadow 0.06s ease;
+    }
+
+    .hw-btn small {
+      font-family: var(--font-mono);
+      font-size: 9px;
+      color: var(--text-secondary);
+      font-weight: 500;
+    }
+
+    .hw-btn:active,
+    .hw-btn.active {
+      transform: translateY(2px);
+      background: linear-gradient(180deg, #3b475c 0%, #263040 100%);
+      border-color: var(--accent-amber);
+      box-shadow: 0 0 12px var(--accent-amber-glow), inset 0 1px 2px rgba(0, 0, 0, 0.5);
+    }
+
+    .hw-btn.softkey {
+      height: 46px;
+      border-top: 2px solid var(--accent-cyan);
+    }
+
+    .hw-btn.softkey-right {
+      border-top: 2px solid var(--accent-amber);
+    }
+
+    .dpad-ring {
+      width: 132px;
+      height: 132px;
+      border-radius: 50%;
+      background: radial-gradient(circle, #181e27 0%, #10141b 100%);
+      border: 2px solid #2e3848;
+      position: relative;
+      box-shadow: inset 0 3px 8px rgba(0, 0, 0, 0.8), 0 2px 6px rgba(0, 0, 0, 0.5);
+    }
+
+    .dpad-btn {
+      position: absolute;
+      width: 40px;
+      height: 40px;
+      border-radius: 8px;
+      padding: 0;
+      font-size: 14px;
+    }
+
+    .dpad-up    { top: 4px; left: 44px; }
+    .dpad-down  { bottom: 4px; left: 44px; }
+    .dpad-left  { left: 4px; top: 44px; }
+    .dpad-right { right: 4px; top: 44px; }
+    .dpad-center {
+      top: 44px;
+      left: 44px;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+      color: #090b0e;
+      font-weight: 700;
+      font-size: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.35);
+    }
+
+    .numpad-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+
+    .hw-btn.action-bomb {
+      background: linear-gradient(180deg, #3f2e1e 0%, #291d12 100%);
+      border-color: rgba(245, 158, 11, 0.45);
+    }
+
+    .hw-btn.action-bomb small {
+      color: #fbbf24;
+    }
+
+    .hw-btn.action-detonate {
+      background: linear-gradient(180deg, #3b1d26 0%, #261219 100%);
+      border-color: rgba(244, 63, 94, 0.45);
+    }
+
+    .hw-btn.action-detonate small {
+      color: #fb7185;
+    }
+
+    .studio-deck {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: 14px;
+      padding: 20px;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.32);
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border-subtle);
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .card-title {
+      font-family: var(--font-display);
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .card-tag {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--accent-cyan);
+      background: rgba(6, 182, 212, 0.1);
+      border: 1px solid rgba(6, 182, 212, 0.25);
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+
+    .toolbar-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .btn-secondary {
+      background: var(--bg-elevated);
+      color: var(--text-primary);
+      border: 1px solid var(--border-strong);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 500;
+      padding: 7px 12px;
+      border-radius: 7px;
+      cursor: pointer;
+      transition: background 0.12s ease, border-color 0.12s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .btn-secondary:hover {
+      background: #232a36;
+      border-color: rgba(255, 255, 255, 0.28);
+    }
+
+    .btn-secondary.active {
+      background: rgba(245, 158, 11, 0.16);
+      border-color: var(--accent-amber);
+      color: #fbbf24;
+    }
+
+    .keymap-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 10px;
+    }
+
+    .keymap-item {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      padding: 10px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .keymap-label {
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .kbd {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-primary);
+      background: #0d1015;
+      border: 1px solid var(--border-strong);
+      border-bottom-width: 2px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      white-space: nowrap;
+    }
+
+    .cheat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(175px, 1fr));
+      gap: 8px;
+    }
+
+    .cheat-btn {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      padding: 9px 11px;
+      text-align: left;
+      cursor: pointer;
+      transition: border-color 0.15s ease, background 0.15s ease;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .cheat-btn:hover {
+      background: #202734;
+      border-color: var(--accent-amber);
+    }
+
+    .cheat-code {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--accent-amber);
+    }
+
+    .cheat-desc {
+      font-size: 11px;
+      color: var(--text-secondary);
+    }
+
+    .jukebox-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(145px, 1fr));
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .sfx-chip {
+      background: #151a22;
+      border: 1px solid var(--border-subtle);
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 7px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      text-align: left;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      transition: border-color 0.12s ease, background 0.12s ease;
+    }
+
+    .sfx-chip:hover {
+      border-color: var(--accent-cyan);
+      background: #1b222d;
+    }
+
+    .inspector-controls {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+
+    .search-input {
+      flex: 1;
+      min-width: 200px;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-strong);
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      padding: 8px 12px;
+      border-radius: 7px;
+      outline: none;
+    }
+
+    .search-input:focus {
+      border-color: var(--accent-cyan);
+    }
+
+    .table-scroll {
+      max-height: 290px;
+      overflow-y: auto;
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+    }
+
+    table.pak-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: var(--font-mono);
+      font-size: 11px;
+    }
+
+    table.pak-table th {
+      position: sticky;
+      top: 0;
+      background: #181e27;
+      color: var(--text-secondary);
+      text-align: left;
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border-strong);
+      font-weight: 600;
+    }
+
+    table.pak-table td {
+      padding: 6px 10px;
+      border-bottom: 1px solid var(--border-subtle);
+      color: var(--text-primary);
+    }
+
+    table.pak-table tr:hover td {
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .badge-lzari {
+      color: #38bdf8;
+      background: rgba(56, 189, 248, 0.12);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    .badge-imp {
+      color: #a78bfa;
+      background: rgba(167, 139, 250, 0.12);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: #181e27;
+      border: 1px solid var(--accent-amber);
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      padding: 10px 16px;
+      border-radius: 8px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.6);
+      opacity: 0;
+      transform: translateY(10px);
+      pointer-events: none;
+      transition: opacity 0.2s ease, transform 0.2s ease;
+      z-index: 100;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  </style>
+</head>
+<body>
+
+  <input type="file" id="sis-file-input" accept=".sis" style="display:none" />
+  <input type="file" id="cfg-file-input" accept=".cfg" style="display:none" />
+  <input type="file" id="sav-file-input" accept=".sav" style="display:none" />
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-badge">EPOC R6 / S60v2</span>
+      <div>
+        <div class="brand-title">EXPLODE ARENA — SYMBIAN S60 WASM VM</div>
+        <div class="brand-sub">ARMv4T E32 Binary + Symbian HLE + 4&times; xBR/Anime4K Upscaler (Bring Your Own .SIS)</div>
+      </div>
+    </div>
+    <div class="status-strip">
+      <div class="status-pill">
+        <span class="dot" id="vm-status-dot"></span>
+        <span id="vm-status-text">Waiting for .SIS Package...</span>
+      </div>
+      <div class="status-pill">
+        <span id="pkg-uid-label">UID: 0x10015B92</span>
+      </div>
+      <div class="status-pill">
+        <span id="fps-counter">0.0 FPS (704&times;832 HD)</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <!-- Left Column: Nokia S60 Handheld Console -->
+    <section class="handheld-column">
+      <div class="nokia-chassis">
+        <div class="earpiece-row">
+          <span class="nokia-logo">NOKIA S60</span>
+          <div class="earpiece-slot"></div>
+          <span class="s60-model-tag">704&times;832 4&times; HD</span>
+        </div>
+
+        <div class="screen-bezel">
+          <div class="screen-meta-bar">
+            <span id="screen-mode-label">xBR + Anime4K + De-Dither 4&times; (704&times;832)</span>
+            <span id="cfg-save-indicator">game.cfg: Ready</span>
+          </div>
+
+          <div class="canvas-wrap" id="canvas-container">
+            <canvas id="s60-screen" width="704" height="832"></canvas>
+            <div class="screen-overlay" id="boot-overlay">
+              <div class="dropzone-box" id="sis-dropzone">
+                <div class="overlay-title">Load Symbian S60 .SIS</div>
+                <div class="overlay-sub">
+                  Drop your <strong>Explode Arena</strong> Symbian S60 installation package (<code>.sis</code>) here or click below to unpack &amp; boot 100% client-side in WebAssembly.
+                </div>
+                <div class="overlay-code">Expected UID1: 0x10015B92 (EPOC R6)</div>
+                <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:center; margin-top:6px;">
+                  <button class="btn-primary" id="btn-choose-sis">&#128194; Select .SIS File</button>
+                  <button class="btn-secondary" id="btn-resume-cached" style="display:none;">&#9654; Boot Cached .SIS</button>
+                </div>
+                <div style="font-size:10px; color:var(--text-muted); margin-top:6px; line-height:1.4;">
+                  No game files are provided or hosted in this repository. Please obtain <code>Explode_Arena.sis</code> (S60v1/v2) from your personal backup or public Symbian software archives.
+                </div>
+                <div id="sis-load-status" style="font-family:var(--font-mono); font-size:11px; color:#fbbf24; margin-top:4px;"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- S60 Softkeys + 5-Way D-Pad -->
+        <div class="nav-cluster">
+          <div class="softkey-col">
+            <button class="hw-btn softkey" data-scan="164" title="Left Softkey (Shortcut: Q or [)">
+              <span>SOFT L</span>
+              <small>[Q] / [</small>
+            </button>
+            <button class="hw-btn" data-scan="1" title="Backspace / Clear">
+              <span>CLEAR</span>
+              <small>Bksp</small>
+            </button>
+          </div>
+
+          <div class="dpad-ring">
+            <button class="hw-btn dpad-btn dpad-up" data-scan="16" title="Up (Up Arrow / W)">&#9650;</button>
+            <button class="hw-btn dpad-btn dpad-down" data-scan="17" title="Down (Down Arrow / S)">&#9660;</button>
+            <button class="hw-btn dpad-btn dpad-left" data-scan="14" title="Left (Left Arrow / A)">&#9664;</button>
+            <button class="hw-btn dpad-btn dpad-right" data-scan="15" title="Right (Right Arrow / D)">&#9654;</button>
+            <button class="hw-btn dpad-center" data-scan="167" title="Center / Confirm / Place Bomb (Enter)">FIRE</button>
+          </div>
+
+          <div class="softkey-col">
+            <button class="hw-btn softkey softkey-right" data-scan="165" title="Right Softkey: PROCEED / BACK / PAUSE (Shortcut: E, ], or Esc)">
+              <span>SOFT R</span>
+              <small>[E] / Esc</small>
+            </button>
+            <button class="hw-btn" data-scan="5" title="Space">
+              <span>SPACE</span>
+              <small>Space</small>
+            </button>
+          </div>
+        </div>
+
+        <!-- Nokia Numpad -->
+        <div class="numpad-grid">
+          <button class="hw-btn" data-scan="49"><span>1</span><small>.,-;0</small></button>
+          <button class="hw-btn" data-scan="50"><span>2</span><small>ABC</small></button>
+          <button class="hw-btn" data-scan="51"><span>3</span><small>DEF</small></button>
+          <button class="hw-btn" data-scan="52"><span>4</span><small>GHI</small></button>
+          <button class="hw-btn action-bomb" data-scan="53" title="Place Bomb (Space / Z / 5)">
+            <span>5 &bull; BOMB</span>
+            <small>Space / Z</small>
+          </button>
+          <button class="hw-btn" data-scan="54"><span>6</span><small>MNO</small></button>
+          <button class="hw-btn" data-scan="55"><span>7</span><small>PQRS</small></button>
+          <button class="hw-btn action-detonate" data-scan="56" title="Detonate Bomb (Shift / X / 8)">
+            <span>8 &bull; DET</span>
+            <small>Shift / X</small>
+          </button>
+          <button class="hw-btn" data-scan="57"><span>9</span><small>WXYZ</small></button>
+          <button class="hw-btn" id="btn-quick-skip" title="Skip Splash / Press Fire"><span>&#9193;</span><small>Skip</small></button>
+          <button class="hw-btn" data-scan="48"><span>0</span><small>Space</small></button>
+          <button class="hw-btn" id="btn-quick-proceed" title="Press Right Softkey (Proceed / Pause)"><span>OK/P</span><small>Proceed</small></button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Right Column: Studio Deck -->
+    <section class="studio-deck">
+
+      <!-- Card 1: Display, Upscaler & VM Controls -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">&#9881; Emulator, Upscaler &amp; Audio Controls</div>
+          <span class="card-tag">ARMv4T WebAssembly Core</span>
+        </div>
+        <div class="toolbar-row">
+          <button class="btn-secondary" id="btn-load-sis-top">&#128194; Load .SIS File</button>
+          <button class="btn-secondary active" id="btn-upscale">&#10024; Upscale: xBR+Anime4K 4&times;</button>
+          <button class="btn-secondary" id="btn-theater">&#128421; Large Screen (704&times;832)</button>
+          <button class="btn-secondary" id="btn-fullscreen">&#9974; Fullscreen</button>
+          <button class="btn-secondary active" id="btn-audio-enhance">&#127911; Hi-Fi Audio DSP: ON</button>
+          <button class="btn-secondary active" id="btn-mute">&#128266; Audio: ON</button>
+          <button class="btn-secondary" id="btn-lcd-grid">&#9638; LCD Grid: OFF</button>
+          <button class="btn-secondary" id="btn-speed">Speed: 1.0&times;</button>
+          <button class="btn-secondary" id="btn-pause">&#9208; Pause</button>
+          <button class="btn-secondary" id="btn-reset">&#8634; Reboot S60</button>
+          <button class="btn-secondary" id="btn-screenshot">&#128247; HD Screenshot</button>
+        </div>
+      </div>
+
+      <!-- Card 1B: Save Manager (Real-Time game.cfg + Instant VM Save States) -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">&#128190; Save Manager (`game.cfg` Auto-Sync &amp; Instant Save States)</div>
+          <span class="card-tag">IndexedDB + localStorage</span>
+        </div>
+        <div class="toolbar-row" style="margin-bottom: 10px;">
+          <button class="btn-secondary" id="btn-save-slot-1">&#128190; Save Slot 1 (F5)</button>
+          <button class="btn-secondary" id="btn-load-slot-1">&#128194; Load Slot 1 (F8)</button>
+          <button class="btn-secondary" id="btn-save-slot-2">&#128190; Save Slot 2</button>
+          <button class="btn-secondary" id="btn-load-slot-2">&#128194; Load Slot 2</button>
+          <button class="btn-secondary" id="btn-export-sav">&#11015; Export .SAV</button>
+          <button class="btn-secondary" id="btn-import-sav">&#11014; Import .SAV</button>
+        </div>
+        <div class="toolbar-row">
+          <button class="btn-secondary" id="btn-export-cfg">&#11015; Export game.cfg (104B)</button>
+          <button class="btn-secondary" id="btn-import-cfg">&#11014; Import game.cfg</button>
+          <button class="btn-secondary" id="btn-clear-cfg">&#128465; Reset game.cfg</button>
+          <span id="save-state-status" style="font-family:var(--font-mono); font-size:11px; color:var(--text-secondary); margin-left:auto;">
+            Auto-Save: Active (104B XOR 0xAA)
+          </span>
+        </div>
+      </div>
+
+      <!-- Card 2: Keyboard & S60 Keymap -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">&#9000; PC Keyboard &amp; Nokia S60 Controls</div>
+          <span class="card-tag">Direct Canvas Click Supported</span>
+        </div>
+        <div class="keymap-grid">
+          <div class="keymap-item">
+            <span class="keymap-label">Move / Navigate Menu</span>
+            <span class="kbd">Arrows / WASD</span>
+          </div>
+          <div class="keymap-item">
+            <span class="keymap-label">Select / Place Bomb</span>
+            <span class="kbd">Enter</span>
+          </div>
+          <div class="keymap-item">
+            <span class="keymap-label">Place Bomb (Numpad 5)</span>
+            <span class="kbd">Space / Z / 5</span>
+          </div>
+          <div class="keymap-item">
+            <span class="keymap-label">Detonate Bomb (Numpad 8)</span>
+            <span class="kbd">Shift / X / 8</span>
+          </div>
+          <div class="keymap-item">
+            <span class="keymap-label">PROCEED / Pause (Soft R)</span>
+            <span class="kbd">E / ] / Esc</span>
+          </div>
+          <div class="keymap-item">
+            <span class="keymap-label">BACK / Cancel (Soft L)</span>
+            <span class="kbd">Q / [</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 3: Secret Cheats & Trainer (Reverse-Engineered from 0x10010590) -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">&#128273; Secret Cheat Injector &amp; Trainer (0x10010590)</div>
+          <span class="card-tag">Recovered from Binary</span>
+        </div>
+        <div class="cheat-grid">
+          <button class="cheat-btn" data-cheat="20">
+            <span class="cheat-code">&#9889; MAX POWERUPS</span>
+            <span class="cheat-desc">9 Lives, 5 Bombs, 5 Flame, Kick &amp; Detonator (In-Game)</span>
+          </button>
+          <button class="cheat-btn" data-cheat="21" id="btn-god-mode">
+            <span class="cheat-code">&#128737; GOD MODE: OFF</span>
+            <span class="cheat-desc">Lock full lives &amp; unlock all levels</span>
+          </button>
+          <button class="cheat-btn" data-cheat="1">
+            <span class="cheat-code">IDRULEZ</span>
+            <span class="cheat-desc">Unlock all stages &amp; secret modes</span>
+          </button>
+          <button class="cheat-btn" data-cheat="2">
+            <span class="cheat-code">S.FORCE</span>
+            <span class="cheat-desc">Unlock secret Sky Force bonus theme</span>
+          </button>
+          <button class="cheat-btn" data-cheat="3">
+            <span class="cheat-code">IDREAMS</span>
+            <span class="cheat-desc">Unlock secret Infinite Dreams theme</span>
+          </button>
+          <button class="cheat-btn" data-cheat="4">
+            <span class="cheat-code">ALIEN1 .. ALIEN7</span>
+            <span class="cheat-desc">Cycle Player 1 secret Alien character (Click to cycle)</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Card 4: Native 12-Channel Audio Mixer Jukebox (soundtrack.mod + 15 WAV SFX) -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">&#127925; Audio Jukebox &amp; Soundboard (`soundtrack.mod` + WAV)</div>
+          <span class="card-tag">Falcon / Cloud#9^AP (27.06.2004)</span>
+        </div>
+        <div class="toolbar-row" style="margin-bottom: 10px;">
+          <button class="btn-secondary" data-modpos="48">&#9654; Menu Theme (0x30)</button>
+          <button class="btn-secondary" data-modpos="0">&#9654; In-Game 1 (0x00)</button>
+          <button class="btn-secondary" data-modpos="25">&#9654; In-Game 2 (0x19)</button>
+          <button class="btn-secondary" data-modpos="66">&#9654; In-Game 3 (0x42)</button>
+          <button class="btn-secondary" data-modpos="60">&#9654; Level Complete (0x3C)</button>
+          <button class="btn-secondary" data-modpos="63">&#9654; Game Over (0x3F)</button>
+        </div>
+        <div class="jukebox-grid" id="sfx-board"></div>
+      </div>
+
+      <!-- Card 5: data.pak Reverse Engineering Inspector (98 Files) -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">&#128269; `data.pak` Archive Inspector (98 Entries)</div>
+          <span class="card-tag">XOR 0xAA + LZARI / IMP!</span>
+        </div>
+        <div class="inspector-controls">
+          <input type="text" class="search-input" id="pak-search" placeholder="Filter by filename or category (e.g. lvl, .wav, .mod, .nps, .brk)..." />
+        </div>
+        <div class="table-scroll">
+          <table class="pak-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Filename</th>
+                <th>Hash (0x1000c05c)</th>
+                <th>Compression</th>
+                <th>Uncompressed</th>
+                <th>Packed</th>
+              </tr>
+            </thead>
+            <tbody id="pak-table-body">
+              <tr>
+                <td colspan="6" style="text-align:center; color:var(--text-secondary); padding:18px;">
+                  Upload <code>Explode_Arena.sis</code> to inspect its <code>data.pak</code> directory table.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Card 6: Legal & Copyright Disclaimer -->
+      <div class="card" style="border-color: rgba(245, 158, 11, 0.2);">
+        <div class="card-header">
+          <div class="card-title">&#9878; Legal &amp; Copyright Disclaimer</div>
+          <span class="card-tag">Clean-Room BYO-SIS VM</span>
+        </div>
+        <p style="font-size:12px; color:var(--text-secondary); line-height:1.6;">
+          This project is an independent clean-room reverse-engineering and preservation virtual machine. <strong>No copyrighted game binaries (<code>.app</code>), asset archives (<code>data.pak</code>), music (<code>.mod</code>), sound effects (<code>.wav</code>), or installation packages (<code>.sis</code>) are included in or distributed by this repository.</strong> To run the game, users must supply their own legally obtained <code>Explode_Arena.sis</code> package downloaded from public Symbian preservation archives or personal backups.
+          <br /><br />
+          <em>Explode Arena</em> (&copy; 2004) is the intellectual property of <strong>Infinite Dreams Inc.</strong> (developed by Marek Wyszy&#324;ski &amp; team, soundtrack by Falcon / Cloud#9^AP, published by Element Studio). All trademarks and copyrights belong to their respective owners.
+        </p>
+      </div>
+
+    </section>
+  </main>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="js/vm_wasm.js"></script>
+  <script src="js/sis_parser.js"></script>
+  <script>
+    (() => {
+      const SFX_NAMES = [
+        "menu_move.wav", "menu_select.wav", "menu_abort.wav",
+        "bomb_explode1.wav", "bomb_explode2.wav", "bomb_place.wav",
+        "bonus.wav", "hero_respawn.wav", "girl_death.wav",
+        "fatman_death.wav", "skater_death.wav", "worker_death.wav",
+        "key_collect.wav", "door_open.wav", "alien_death.wav"
+      ];
+
+      const STORAGE_CFG_KEY = "explode_arena_s60_game_cfg_v1";
+      const IDB_NAME = "explode_arena_s60_idb";
+      const IDB_STORE = "sis_packages";
+
+      let wasmExports = null;
+      let wasmMemory = null;
+      let currentParsedSis = null;
+      let running = false;
+      let paused = false;
+      let speedMult = 1.0;
+      let upscaleMode = 2;
+      let theaterMode = false;
+      let alienCycle = 4;
+      let godModeActive = false;
+      let loopStarted = false;
+
+      // WebAudio state (16,000 Hz native mixer stream + Hi-Fi DSP enhancer)
+      let audioCtx = null;
+      let scriptNode = null;
+      let bassFilter = null;
+      let lowpassFilter = null;
+      let compressorNode = null;
+      let audioEnhanceOn = true;
+      let audioMuted = false;
+      let pcmRing = new Float32Array(32768);
+      let ringRead = 0;
+      let ringWrite = 0;
+      let ringCount = 0;
+
+      const canvas = document.getElementById("s60-screen");
+      const ctx = canvas.getContext("2d", { alpha: false });
+      const imageData = ctx.createImageData(704, 832);
+      const imgU32 = new Uint32Array(imageData.data.buffer);
+
+      function showToast(msg) {
+        const el = document.getElementById("toast");
+        el.textContent = msg;
+        el.classList.add("show");
+        clearTimeout(showToast._timer);
+        showToast._timer = setTimeout(() => el.classList.remove("show"), 2600);
+      }
+
+      function b64ToUint8Array(b64) {
+        const bin = atob(b64);
+        const arr = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+        return arr;
+      }
+
+      // IndexedDB helper for caching user-uploaded .sis file locally in browser
+      function openIdb() {
+        return new Promise((resolve, reject) => {
+          const req = indexedDB.open(IDB_NAME, 1);
+          req.onupgradeneeded = () => req.result.createObjectStore(IDB_STORE);
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => reject(req.error);
+        });
+      }
+
+      async function saveSisToIdb(uint8) {
+        try {
+          const db = await openIdb();
+          const tx = db.transaction(IDB_STORE, "readwrite");
+          tx.objectStore(IDB_STORE).put(uint8, "last_sis");
+        } catch (e) {}
+      }
+
+      async function loadSisFromIdb() {
+        try {
+          const db = await openIdb();
+          return await new Promise((resolve) => {
+            const tx = db.transaction(IDB_STORE, "readonly");
+            const req = tx.objectStore(IDB_STORE).get("last_sis");
+            req.onsuccess = () => resolve(req.result || null);
+            req.onerror = () => resolve(null);
+          });
+        } catch (e) {
+          return null;
+        }
+      }
+
+      function loadSavedCfg() {
+        try {
+          const b64 = localStorage.getItem(STORAGE_CFG_KEY);
+          if (!b64) return null;
+          return b64ToUint8Array(b64);
+        } catch (e) {
+          return null;
+        }
+      }
+
+      function saveCfgToStorage() {
+        if (!wasmExports) return;
+        try {
+          const ptr = wasmExports.vm_get_cfg_buf();
+          const sz = wasmExports.vm_get_cfg_size();
+          const bytes = new Uint8Array(wasmMemory.buffer, ptr, sz);
+          let bin = "";
+          for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+          localStorage.setItem(STORAGE_CFG_KEY, btoa(bin));
+          const ind = document.getElementById("cfg-save-indicator");
+          ind.textContent = `game.cfg: Saved (${sz}B)`;
+          ind.style.color = "#10b981";
+        } catch (e) {}
+      }
+
+      function updateAudioGraph() {
+        if (!audioCtx || !scriptNode) return;
+        scriptNode.disconnect();
+        bassFilter.disconnect();
+        lowpassFilter.disconnect();
+        compressorNode.disconnect();
+        if (audioEnhanceOn) {
+          scriptNode.connect(bassFilter);
+          bassFilter.connect(lowpassFilter);
+          lowpassFilter.connect(compressorNode);
+          compressorNode.connect(audioCtx.destination);
+        } else {
+          scriptNode.connect(audioCtx.destination);
+        }
+      }
+
+      function initAudio() {
+        if (audioCtx) {
+          if (audioCtx.state === "suspended") audioCtx.resume();
+          return;
+        }
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextClass) return;
+
+        audioCtx = new AudioContextClass();
+        const outRate = audioCtx.sampleRate;
+        scriptNode = audioCtx.createScriptProcessor(1024, 0, 1);
+
+        bassFilter = audioCtx.createBiquadFilter();
+        bassFilter.type = "lowshelf";
+        bassFilter.frequency.value = 145;
+        bassFilter.gain.value = 3.5;
+
+        lowpassFilter = audioCtx.createBiquadFilter();
+        lowpassFilter.type = "lowpass";
+        lowpassFilter.frequency.value = 6800;
+        lowpassFilter.Q.value = 0.707;
+
+        compressorNode = audioCtx.createDynamicsCompressor();
+        compressorNode.threshold.value = -10;
+        compressorNode.knee.value = 12;
+        compressorNode.ratio.value = 4;
+        compressorNode.attack.value = 0.003;
+        compressorNode.release.value = 0.12;
+
+        let resamplePos = 0;
+        const step = 16000 / outRate;
+
+        scriptNode.onaudioprocess = (ev) => {
+          const out = ev.outputBuffer.getChannelData(0);
+          if (audioMuted || paused || !running || !wasmExports) {
+            out.fill(0);
+            return;
+          }
+          const needed16k = Math.ceil(out.length * step) + 32;
+          while (ringCount < needed16k) {
+            wasmExports.vm_mix_audio();
+            const pcmPtr = wasmExports.vm_get_pcm_ptr();
+            const pcm = new Int16Array(wasmMemory.buffer, pcmPtr, 768);
+            for (let i = 0; i < 768; i++) {
+              pcmRing[ringWrite] = pcm[i] / 32768.0;
+              ringWrite = (ringWrite + 1) & 32767;
+            }
+            ringCount += 768;
+          }
+          for (let i = 0; i < out.length; i++) {
+            const ipos = resamplePos | 0;
+            const frac = resamplePos - ipos;
+            const i0 = (ringRead + ipos) & 32767;
+            const im1 = (i0 - 1) & 32767;
+            const i1 = (i0 + 1) & 32767;
+            const i2 = (i0 + 2) & 32767;
+
+            const ym1 = pcmRing[im1];
+            const y0  = pcmRing[i0];
+            const y1  = pcmRing[i1];
+            const y2  = pcmRing[i2];
+
+            const c0 = y0;
+            const c1 = 0.5 * (y1 - ym1);
+            const c2 = ym1 - 2.5 * y0 + 2.0 * y1 - 0.5 * y2;
+            const c3 = 0.5 * (y2 - ym1) + 1.5 * (y0 - y1);
+            out[i] = ((c3 * frac + c2) * frac + c1) * frac + c0;
+
+            resamplePos += step;
+            while (resamplePos >= 1.0 && ringCount > 4) {
+              ringRead = (ringRead + 1) & 32767;
+              ringCount--;
+              resamplePos -= 1.0;
+            }
+          }
+        };
+
+        updateAudioGraph();
+      }
+
+      function renderFrameFromWasm() {
+        const rgbaPtr = wasmExports.vm_get_upscaled_rgba_ptr();
+        const srcU32 = new Uint32Array(wasmMemory.buffer, rgbaPtr, 704 * 832);
+        imgU32.set(srcU32);
+        ctx.putImageData(imageData, 0, 0);
+      }
+
+      // Guarantee every key press is observed by at least 2 vm_tick() frames
+      let tickCounter = 0;
+      const keyDownTick = new Map();
+      const pendingKeyUp = new Set();
+
+      function sendKey(scanCode, isPressed) {
+        if (!wasmExports || !running) return;
+        const btn = document.querySelector(`.hw-btn[data-scan="${scanCode}"]`);
+        if (isPressed) {
+          pendingKeyUp.delete(scanCode);
+          keyDownTick.set(scanCode, tickCounter);
+          wasmExports.vm_key_event(scanCode, 1);
+          if (btn) btn.classList.add("active");
+        } else {
+          const downAt = keyDownTick.get(scanCode);
+          if (downAt !== undefined && (tickCounter - downAt) < 2) {
+            pendingKeyUp.add(scanCode);
+          } else {
+            keyDownTick.delete(scanCode);
+            wasmExports.vm_key_event(scanCode, 0);
+            if (btn) btn.classList.remove("active");
+          }
+        }
+      }
+
+      function flushPendingKeyUps() {
+        for (const scanCode of Array.from(pendingKeyUp)) {
+          const downAt = keyDownTick.get(scanCode) ?? 0;
+          if ((tickCounter - downAt) >= 2) {
+            pendingKeyUp.delete(scanCode);
+            keyDownTick.delete(scanCode);
+            wasmExports.vm_key_event(scanCode, 0);
+            const btn = document.querySelector(`.hw-btn[data-scan="${scanCode}"]`);
+            if (btn) btn.classList.remove("active");
+          }
+        }
+      }
+
+      function pulseKey(scanCode) {
+        sendKey(scanCode, true);
+        sendKey(scanCode, false);
+      }
+
+      // Direct click hotspots on the S60 screen canvas
+      canvas.style.cursor = "pointer";
+      canvas.addEventListener("pointerdown", (e) => {
+        if (!wasmExports || !running) return;
+        initAudio();
+        const rect = canvas.getBoundingClientRect();
+        const x = ((e.clientX - rect.left) / rect.width) * 176;
+        const y = ((e.clientY - rect.top) / rect.height) * 208;
+        if (y >= 178 && x >= 92) {
+          pulseKey(165); // Bottom-right: PROCEED (Right Softkey)
+        } else if (y >= 178 && x <= 84) {
+          pulseKey(164); // Bottom-left: BACK (Left Softkey)
+        } else if (y >= 120 && y < 178 && x < 46) {
+          pulseKey(14);  // Left arrow
+        } else if (y >= 120 && y < 178 && x > 130) {
+          pulseKey(15);  // Right arrow
+        } else {
+          pulseKey(167); // Center / Confirm / Place Bomb
+        }
+      });
+
+      const KEY_TO_SCAN = {
+        ArrowUp: 16, KeyW: 16,
+        ArrowDown: 17, KeyS: 17,
+        ArrowLeft: 14, KeyA: 14,
+        ArrowRight: 15, KeyD: 15,
+        Enter: 167,
+        Space: 53, KeyZ: 53, KeyJ: 53, Numpad5: 53,
+        ShiftLeft: 56, ShiftRight: 56, KeyX: 56, KeyK: 56, Numpad8: 56,
+        KeyQ: 164, BracketLeft: 164,
+        KeyE: 165, BracketRight: 165, Escape: 165,
+        Backspace: 1,
+        Digit0: 48, Numpad0: 48,
+        Digit1: 49, Numpad1: 49,
+        Digit2: 50, Numpad2: 50,
+        Digit3: 51, Numpad3: 51,
+        Digit4: 52, Numpad4: 52,
+        Digit5: 53,
+        Digit6: 54, Numpad6: 54,
+        Digit7: 55, Numpad7: 55,
+        Digit8: 56,
+        Digit9: 57, Numpad9: 57
+      };
+
+      const pressedKeys = new Set();
+
+      window.addEventListener("keydown", (e) => {
+        if (document.activeElement && document.activeElement.tagName === "INPUT") return;
+        if (e.code === "F5" && running) {
+          e.preventDefault();
+          saveVmStateToSlot(1);
+          return;
+        }
+        if (e.code === "F8" && running) {
+          e.preventDefault();
+          loadVmStateFromSlot(1);
+          return;
+        }
+        const scan = KEY_TO_SCAN[e.code];
+        if (scan !== undefined && running) {
+          e.preventDefault();
+          initAudio();
+          if (!pressedKeys.has(e.code)) {
+            pressedKeys.add(e.code);
+            sendKey(scan, true);
+          }
+        }
+      });
+
+      window.addEventListener("keyup", (e) => {
+        const scan = KEY_TO_SCAN[e.code];
+        if (scan !== undefined && running) {
+          e.preventDefault();
+          pressedKeys.delete(e.code);
+          sendKey(scan, false);
+        }
+      });
+
+      document.querySelectorAll(".hw-btn[data-scan]").forEach((btn) => {
+        const scan = parseInt(btn.getAttribute("data-scan"), 10);
+        const down = (e) => {
+          e.preventDefault();
+          if (!running) return;
+          initAudio();
+          sendKey(scan, true);
+        };
+        const up = (e) => {
+          e.preventDefault();
+          if (!running) return;
+          sendKey(scan, false);
+        };
+        btn.addEventListener("pointerdown", down);
+        btn.addEventListener("pointerup", up);
+        btn.addEventListener("pointerleave", up);
+        btn.addEventListener("pointercancel", up);
+      });
+
+      document.getElementById("btn-quick-skip").addEventListener("click", () => {
+        if (!running) return;
+        initAudio();
+        pulseKey(167);
+      });
+
+      document.getElementById("btn-quick-proceed").addEventListener("click", () => {
+        if (!running) return;
+        initAudio();
+        pulseKey(165);
+      });
+
+      // Populate Soundboard
+      const sfxBoard = document.getElementById("sfx-board");
+      SFX_NAMES.forEach((name, idx) => {
+        const btn = document.createElement("button");
+        btn.className = "sfx-chip";
+        btn.innerHTML = `<span>&#9835; ${name.replace(".wav", "")}</span><span>#${idx}</span>`;
+        btn.addEventListener("click", () => {
+          if (!running || !wasmExports) {
+            showToast("Load a .SIS file first!");
+            return;
+          }
+          initAudio();
+          wasmExports.vm_play_sfx(idx);
+          showToast(`Playing SFX #${idx}: ${name}`);
+        });
+        sfxBoard.appendChild(btn);
+      });
+
+      function populateManifestTable(manifest) {
+        const tbody = document.getElementById("pak-table-body");
+        const renderTable = (filterText = "") => {
+          const q = filterText.trim().toLowerCase();
+          tbody.innerHTML = "";
+          manifest
+            .filter((item) => !q || item.name.toLowerCase().includes(q) || item.category.toLowerCase().includes(q))
+            .forEach((item) => {
+              const tr = document.createElement("tr");
+              const isLzari = item.compression.includes("LZARI");
+              tr.innerHTML = `
+                <td>${item.index}</td>
+                <td style="font-weight:600;">${item.name}</td>
+                <td style="color:#94a3b8;">${item.hash}</td>
+                <td><span class="${isLzari ? 'badge-lzari' : 'badge-imp'}">${item.compression}</span></td>
+                <td>${item.uncompressedSize.toLocaleString()} B</td>
+                <td style="color:#94a3b8;">${item.compressedSize.toLocaleString()} B</td>
+              `;
+              tbody.appendChild(tr);
+            });
+        };
+        renderTable(document.getElementById("pak-search").value);
+        document.getElementById("pak-search").oninput = (e) => renderTable(e.target.value);
+      }
+
+      function startMainLoop() {
+        if (loopStarted) return;
+        loopStarted = true;
+        let lastTime = performance.now();
+        let acc = 0;
+        let frames = 0;
+        let fpsTimer = lastTime;
+
+        function loop(now) {
+          requestAnimationFrame(loop);
+          const dt = Math.min(now - lastTime, 200);
+          lastTime = now;
+          if (paused || !running || !wasmExports) return;
+
+          acc += dt * speedMult;
+          const stepMs = 50;
+          let stepped = false;
+          while (acc >= stepMs) {
+            wasmExports.vm_tick(stepMs);
+            tickCounter++;
+            flushPendingKeyUps();
+            acc -= stepMs;
+            frames++;
+            stepped = true;
+          }
+          if (stepped) {
+            renderFrameFromWasm();
+            if (wasmExports.vm_consume_cfg_dirty()) {
+              saveCfgToStorage();
+            }
+          }
+          if (now - fpsTimer >= 1000) {
+            const fps = (frames * 1000) / (now - fpsTimer);
+            document.getElementById("fps-counter").textContent = `${fps.toFixed(1)} FPS (704\u00d7832 HD)`;
+            frames = 0;
+            fpsTimer = now;
+          }
+        }
+        requestAnimationFrame(loop);
+      }
+
+      async function bootFromSisBytes(sisUint8, saveToCache = true) {
+        const statusEl = document.getElementById("sis-load-status");
+        try {
+          statusEl.textContent = "Unpacking Symbian .SIS & E32 binary...";
+          await new Promise((r) => setTimeout(r, 15));
+
+          const parsed = window.SymbianSisParser.parseSymbianSis(sisUint8);
+          currentParsedSis = parsed;
+
+          if (!wasmExports) {
+            const wasmBytes = b64ToUint8Array(window.VM_WASM_BASE64);
+            const { instance } = await WebAssembly.instantiate(wasmBytes, {});
+            wasmExports = instance.exports;
+            wasmMemory = wasmExports.memory;
+          }
+
+          const memU8 = new Uint8Array(wasmMemory.buffer);
+          memU8.set(parsed.codeBytes, wasmExports.vm_get_code_buf());
+          memU8.set(parsed.pakBytes, wasmExports.vm_get_pak_buf());
+
+          const savedCfg = loadSavedCfg();
+          if (savedCfg) {
+            memU8.set(savedCfg, wasmExports.vm_get_cfg_buf());
+            wasmExports.vm_init(parsed.pakBytes.byteLength, savedCfg.length);
+          } else {
+            wasmExports.vm_init(parsed.pakBytes.byteLength, 0);
+          }
+
+          wasmExports.vm_set_upscale_mode(upscaleMode);
+          renderFrameFromWasm();
+          populateManifestTable(parsed.manifest);
+
+          if (saveToCache) {
+            saveSisToIdb(sisUint8);
+          }
+
+          running = true;
+          paused = false;
+          initAudio();
+          document.getElementById("boot-overlay").classList.add("hidden");
+          document.getElementById("vm-status-dot").classList.add("running");
+          document.getElementById("vm-status-text").textContent = `${parsed.metadata.packageName} v${parsed.metadata.version} (ARMv4T)`;
+          document.getElementById("pkg-uid-label").textContent = `UID: ${parsed.metadata.uid1.toUpperCase()}`;
+
+          startMainLoop();
+          showToast(`Loaded ${parsed.metadata.packageName} (${parsed.manifest.length} PAK assets)!`);
+        } catch (err) {
+          console.error(err);
+          statusEl.textContent = `Error: ${err.message}`;
+          showToast(`Failed to load .SIS: ${err.message}`);
+        }
+      }
+
+      // File input & Drag-and-Drop bindings
+      const fileInput = document.getElementById("sis-file-input");
+      document.getElementById("btn-choose-sis").addEventListener("click", () => fileInput.click());
+      document.getElementById("btn-load-sis-top").addEventListener("click", () => fileInput.click());
+
+      fileInput.addEventListener("change", async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const buf = await file.arrayBuffer();
+        bootFromSisBytes(new Uint8Array(buf), true);
+        fileInput.value = "";
+      });
+
+      const dropzone = document.getElementById("sis-dropzone");
+      window.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        dropzone.classList.add("dragover");
+      });
+      window.addEventListener("dragleave", () => dropzone.classList.remove("dragover"));
+      window.addEventListener("drop", async (e) => {
+        e.preventDefault();
+        dropzone.classList.remove("dragover");
+        const file = e.dataTransfer?.files?.[0];
+        if (!file) return;
+        document.getElementById("boot-overlay").classList.remove("hidden");
+        const buf = await file.arrayBuffer();
+        bootFromSisBytes(new Uint8Array(buf), true);
+      });
+
+      // Check if a cached .sis exists in IndexedDB
+      loadSisFromIdb().then((cached) => {
+        if (cached && cached.byteLength > 0) {
+          const btnResume = document.getElementById("btn-resume-cached");
+          btnResume.style.display = "inline-flex";
+          btnResume.addEventListener("click", () => bootFromSisBytes(cached, false));
+        }
+      });
+
+      // Toolbar & Cheat bindings
+      document.getElementById("btn-pause").addEventListener("click", (e) => {
+        if (!running) return;
+        paused = !paused;
+        e.currentTarget.classList.toggle("active", paused);
+        e.currentTarget.innerHTML = paused ? "&#9654; Resume" : "&#9208; Pause";
+        document.getElementById("vm-status-dot").classList.toggle("running", !paused);
+        document.getElementById("vm-status-text").textContent = paused ? "VM Paused" : "VM Running (ARMv4T)";
+      });
+
+      document.getElementById("btn-reset").addEventListener("click", () => {
+        if (!currentParsedSis || !wasmExports) return;
+        const memU8 = new Uint8Array(wasmMemory.buffer);
+        memU8.set(currentParsedSis.codeBytes, wasmExports.vm_get_code_buf());
+        memU8.set(currentParsedSis.pakBytes, wasmExports.vm_get_pak_buf());
+        const savedCfg = loadSavedCfg();
+        if (savedCfg) {
+          memU8.set(savedCfg, wasmExports.vm_get_cfg_buf());
+          wasmExports.vm_init(currentParsedSis.pakBytes.byteLength, savedCfg.length);
+        } else {
+          wasmExports.vm_init(currentParsedSis.pakBytes.byteLength, 0);
+        }
+        renderFrameFromWasm();
+        showToast("Symbian S60 VM rebooted!");
+      });
+
+      document.getElementById("btn-upscale").addEventListener("click", (e) => {
+        if (!wasmExports) return;
+        upscaleMode = upscaleMode === 2 ? 1 : upscaleMode === 1 ? 0 : 2;
+        wasmExports.vm_set_upscale_mode(upscaleMode);
+        if (running) renderFrameFromWasm();
+        const labels = ["Retro Pixel 1\u00d7", "xBR Crisp 4\u00d7", "xBR+Anime4K 4\u00d7"];
+        const metaLabels = [
+          "Retro Nearest 1\u00d7 (176\u00d7208)",
+          "21-Tap xBR 4\u00d7 (704\u00d7832)",
+          "xBR + Anime4K + De-Dither 4\u00d7 (704\u00d7832)"
+        ];
+        canvas.classList.toggle("pixelated-mode", upscaleMode === 0);
+        e.currentTarget.classList.toggle("active", upscaleMode !== 0);
+        e.currentTarget.innerHTML = `&#10024; Upscale: ${labels[upscaleMode]}`;
+        document.getElementById("screen-mode-label").textContent = metaLabels[upscaleMode];
+        showToast(`Upscaler Mode: ${metaLabels[upscaleMode]}`);
+      });
+
+      document.getElementById("btn-theater").addEventListener("click", (e) => {
+        theaterMode = !theaterMode;
+        document.querySelector(".workspace").classList.toggle("theater-mode", theaterMode);
+        e.currentTarget.classList.toggle("active", theaterMode);
+        e.currentTarget.innerHTML = theaterMode
+          ? "&#128421; Large Screen: ON (704\u00d7832)"
+          : "&#128421; Large Screen (704\u00d7832)";
+      });
+
+      document.getElementById("btn-fullscreen").addEventListener("click", () => {
+        const wrap = document.getElementById("canvas-container");
+        if (!document.fullscreenElement) {
+          (wrap.requestFullscreen || wrap.webkitRequestFullscreen)?.call(wrap);
+        } else {
+          document.exitFullscreen?.();
+        }
+      });
+
+      document.getElementById("btn-audio-enhance").addEventListener("click", (e) => {
+        initAudio();
+        audioEnhanceOn = !audioEnhanceOn;
+        updateAudioGraph();
+        e.currentTarget.classList.toggle("active", audioEnhanceOn);
+        e.currentTarget.innerHTML = audioEnhanceOn
+          ? "&#127911; Hi-Fi Audio DSP: ON"
+          : "&#127911; Hi-Fi Audio DSP: OFF";
+        showToast(`Hi-Fi Audio Enhancer: ${audioEnhanceOn ? "ENABLED" : "BYPASSED"}`);
+      });
+
+      document.getElementById("btn-lcd-grid").addEventListener("click", (e) => {
+        const wrap = document.getElementById("canvas-container");
+        const on = wrap.classList.toggle("lcd-grid");
+        e.currentTarget.classList.toggle("active", on);
+        e.currentTarget.innerHTML = `&#9638; LCD Grid: ${on ? "ON" : "OFF"}`;
+      });
+
+      document.getElementById("btn-speed").addEventListener("click", (e) => {
+        speedMult = speedMult === 1.0 ? 1.5 : speedMult === 1.5 ? 2.0 : 1.0;
+        e.currentTarget.textContent = `Speed: ${speedMult.toFixed(1)}\u00d7`;
+      });
+
+      document.getElementById("btn-screenshot").addEventListener("click", () => {
+        if (!running) return;
+        const a = document.createElement("a");
+        a.download = `explode-arena-s60-hd-${Date.now()}.png`;
+        a.href = canvas.toDataURL("image/png");
+        a.click();
+        showToast("704x832 HD PNG screenshot saved!");
+      });
+
+      document.getElementById("btn-mute").addEventListener("click", (e) => {
+        initAudio();
+        audioMuted = !audioMuted;
+        e.currentTarget.classList.toggle("active", !audioMuted);
+        e.currentTarget.innerHTML = audioMuted ? "&#128263; Audio: MUTE" : "&#128266; Audio: ON";
+      });
+
+      document.getElementById("btn-export-cfg").addEventListener("click", () => {
+        if (!wasmExports || !running) return;
+        wasmExports.vm_force_save_cfg();
+        saveCfgToStorage();
+        const ptr = wasmExports.vm_get_cfg_buf();
+        const sz = wasmExports.vm_get_cfg_size();
+        const bytes = new Uint8Array(wasmMemory.buffer, ptr, sz);
+        const blob = new Blob([bytes], { type: "application/octet-stream" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = "game.cfg";
+        a.click();
+        showToast(`game.cfg (${sz} bytes) exported!`);
+      });
+
+      const cfgInput = document.getElementById("cfg-file-input");
+      document.getElementById("btn-import-cfg").addEventListener("click", () => cfgInput.click());
+      cfgInput.addEventListener("change", async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const buf = new Uint8Array(await file.arrayBuffer());
+        if (buf.byteLength !== 104 && buf.byteLength !== 36) {
+          showToast(`Invalid game.cfg size (${buf.byteLength}B, expected 104B)`);
+          return;
+        }
+        let bin = "";
+        for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i]);
+        localStorage.setItem(STORAGE_CFG_KEY, btoa(bin));
+        if (currentParsedSis && wasmExports) {
+          document.getElementById("btn-reset").click();
+        }
+        showToast(`Imported game.cfg (${buf.byteLength}B)!`);
+        cfgInput.value = "";
+      });
+
+      document.getElementById("btn-clear-cfg").addEventListener("click", () => {
+        localStorage.removeItem(STORAGE_CFG_KEY);
+        document.getElementById("cfg-save-indicator").textContent = "game.cfg: Reset";
+        showToast("Saved game.cfg cleared!");
+      });
+
+      // Full VM Save State (Snapshot / Restore)
+      const STATE_MEM_LEN = 0x00f20000; // Covers code, framebuffer, heap, and stack
+      function captureVmSnapshot() {
+        if (!wasmExports || !running) return null;
+        wasmExports.vm_force_save_cfg();
+        saveCfgToStorage();
+        const codeBase = wasmExports.vm_get_code_buf();
+        const infoPtr = codeBase + 0x00f10000;
+        wasmExports.vm_get_state_info(infoPtr);
+        const snap = new Uint8Array(STATE_MEM_LEN);
+        snap.set(new Uint8Array(wasmMemory.buffer, codeBase, STATE_MEM_LEN));
+        return snap;
+      }
+
+      function restoreVmSnapshot(snap) {
+        if (!wasmExports || !running || !snap || snap.byteLength < STATE_MEM_LEN) return false;
+        const codeBase = wasmExports.vm_get_code_buf();
+        new Uint8Array(wasmMemory.buffer, codeBase, STATE_MEM_LEN).set(snap.subarray(0, STATE_MEM_LEN));
+        const infoPtr = codeBase + 0x00f10000;
+        wasmExports.vm_set_state_info(infoPtr);
+        saveCfgToStorage();
+        renderFrameFromWasm();
+        return true;
+      }
+
+      async function saveVmStateToSlot(slot) {
+        const snap = captureVmSnapshot();
+        if (!snap) {
+          showToast("Load a .SIS file first!");
+          return;
+        }
+        try {
+          const db = await openIdb();
+          const tx = db.transaction(IDB_STORE, "readwrite");
+          tx.objectStore(IDB_STORE).put(snap, `savestate_slot_${slot}`);
+          const timeStr = new Date().toLocaleTimeString();
+          document.getElementById("save-state-status").textContent = `Slot ${slot} saved (${timeStr})`;
+          showToast(`Saved state to Slot ${slot}!`);
+        } catch (e) {
+          showToast("Failed to save state to IndexedDB");
+        }
+      }
+
+      async function loadVmStateFromSlot(slot) {
+        if (!running || !wasmExports) {
+          showToast("Load a .SIS file first!");
+          return;
+        }
+        try {
+          const db = await openIdb();
+          const snap = await new Promise((resolve) => {
+            const tx = db.transaction(IDB_STORE, "readonly");
+            const req = tx.objectStore(IDB_STORE).get(`savestate_slot_${slot}`);
+            req.onsuccess = () => resolve(req.result || null);
+            req.onerror = () => resolve(null);
+          });
+          if (!snap) {
+            showToast(`Slot ${slot} is empty!`);
+            return;
+          }
+          if (restoreVmSnapshot(snap)) {
+            document.getElementById("save-state-status").textContent = `Slot ${slot} loaded`;
+            showToast(`Loaded state from Slot ${slot}!`);
+          }
+        } catch (e) {
+          showToast(`Failed to load Slot ${slot}`);
+        }
+      }
+
+      document.getElementById("btn-save-slot-1").addEventListener("click", () => saveVmStateToSlot(1));
+      document.getElementById("btn-load-slot-1").addEventListener("click", () => loadVmStateFromSlot(1));
+      document.getElementById("btn-save-slot-2").addEventListener("click", () => saveVmStateToSlot(2));
+      document.getElementById("btn-load-slot-2").addEventListener("click", () => loadVmStateFromSlot(2));
+
+      document.getElementById("btn-export-sav").addEventListener("click", () => {
+        const snap = captureVmSnapshot();
+        if (!snap) {
+          showToast("Load a .SIS file first!");
+          return;
+        }
+        const blob = new Blob([snap], { type: "application/octet-stream" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `explode-arena-slot-${Date.now()}.sav`;
+        a.click();
+        showToast("Exported VM .SAV snapshot!");
+      });
+
+      const savInput = document.getElementById("sav-file-input");
+      document.getElementById("btn-import-sav").addEventListener("click", () => savInput.click());
+      savInput.addEventListener("change", async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const buf = new Uint8Array(await file.arrayBuffer());
+        if (restoreVmSnapshot(buf)) {
+          showToast("Imported VM .SAV snapshot!");
+        } else {
+          showToast("Invalid .SAV file or .SIS not loaded yet!");
+        }
+        savInput.value = "";
+      });
+
+      window.addEventListener("beforeunload", () => {
+        if (wasmExports && running) {
+          wasmExports.vm_force_save_cfg();
+          saveCfgToStorage();
+        }
+      });
+
+      document.querySelectorAll(".cheat-btn[data-cheat]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          if (!wasmExports || !running) {
+            showToast("Load a .SIS file first!");
+            return;
+          }
+          let cid = parseInt(btn.getAttribute("data-cheat"), 10);
+          if (cid === 4) {
+            cid = alienCycle;
+            alienCycle = alienCycle >= 10 ? 4 : alienCycle + 1;
+            wasmExports.vm_apply_cheat(cid);
+            showToast(`Player 1 character set to ALIEN${cid - 3}!`);
+          } else if (cid === 21) {
+            godModeActive = !godModeActive;
+            wasmExports.vm_apply_cheat(21);
+            btn.querySelector(".cheat-code").innerHTML = `&#128737; GOD MODE: ${godModeActive ? "ON" : "OFF"}`;
+            showToast(`Trainer God Mode: ${godModeActive ? "ENABLED" : "DISABLED"}`);
+          } else {
+            wasmExports.vm_apply_cheat(cid);
+            const label = btn.querySelector(".cheat-code").textContent;
+            showToast(`Cheat activated: ${label}`);
+          }
+        });
+      });
+
+      document.querySelectorAll("[data-modpos]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          if (!wasmExports || !running) {
+            showToast("Load a .SIS file first!");
+            return;
+          }
+          initAudio();
+          const pos = parseInt(btn.getAttribute("data-modpos"), 10);
+          wasmExports.vm_play_music_pos(1, pos);
+          showToast(`Playing soundtrack.mod pattern 0x${pos.toString(16).toUpperCase()}`);
+        });
+      });
+    })();
+  </script>
+</body>
+</html>
