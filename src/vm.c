@@ -54,8 +54,10 @@ static uint32_t mp_client_uids[4] = {0, 0, 0, 0};
 static char     mp_client_names[4][16] = {"PLAYER 2", "PLAYER 3", "PLAYER 4", "PLAYER 5"};
 static uint32_t mp_local_uid = 0x12345678u;
 static uint32_t mp_waiting_for_peer = 0;
+static uint32_t mp_waiting_ticks = 0;
 static uint32_t mp_rx_watchdog = 0;
 static uint32_t fb_dirty = 1;
+static uint32_t native_rgba_dirty = 1;
 static uint32_t prev_rgba_fb[176 * 208];
 static uint8_t  dirty_strips[26];
 
@@ -521,6 +523,42 @@ static void run_arm(uint32_t start_pc) {
                     }
                 }
                 reg[15] = reg[14]; continue;
+            } else if (pc == 0x1000a818u) { // Native C HLE fast-path for CFade::ApplyMaskWipe (mask1.raw / mask2.raw 2D affine wipe)
+                uint32_t self = reg[0];
+                int32_t prog = (int32_t)r32(self + 0x14u);
+                if (prog > 0) {
+                    uint32_t cgame = r32(self);
+                    uint32_t sin_tab = r32(cgame + 0x438u);
+                    uint32_t cos_tab = r32(cgame + 0x43cu);
+                    uint32_t angle = (uint32_t)(prog * 3) & 0xffu;
+                    int32_t s = (int32_t)r32(sin_tab + angle * 4u);
+                    int32_t c = (int32_t)r32(cos_tab + angle * 4u);
+                    int32_t dx_x = (c * prog) >> 10;
+                    int32_t dy_x = (s * prog) >> 10;
+                    int32_t dx_y = -dy_x;
+                    int32_t dy_y = dx_x;
+                    int32_t row_x = -88 * dx_x - 104 * dx_y + 0x10000;
+                    int32_t row_y = -88 * dy_x - 104 * dy_y + 0x10000;
+                    uint32_t fb = r32(cgame + 0x90u) + 0xc10u;
+                    const uint8_t *mask = mem + (r32(self + 0x18u) & ADDR_MASK);
+                    for (uint32_t y = 0; y < 208u; y++) {
+                        int32_t u = row_x, v = row_y;
+                        uint32_t p = (fb + y * 384u) & ADDR_MASK;
+                        for (uint32_t x = 0; x < 176u; x++, p += 2u) {
+                            uint32_t iu = (uint32_t)u >> 10;
+                            uint32_t iv = (uint32_t)v >> 10;
+                            if (iu > 127u || iv > 127u || mask[(iv << 7) + iu] == 0u) {
+                                mem[p] = 0;
+                                mem[p + 1] = 0;
+                            }
+                            u += dx_x;
+                            v += dy_x;
+                        }
+                        row_x += dx_y;
+                        row_y += dy_y;
+                    }
+                }
+                reg[15] = reg[14]; continue;
             } else if (pc == 0x10013f9cu) {
                 reg[15] = reg[14]; continue;
             } else if (pc == 0x10041e18u) {
@@ -628,10 +666,19 @@ static void run_arm(uint32_t start_pc) {
             } else if (pc == 0x10041bb8u) { // CMultiplayer::IsScanInitDone(mp)
                 reg[0] = 0; // 0 = ready, transitions State 3 -> State 5
                 reg[15] = reg[14]; continue;
+            } else if (pc == 0x100416b0u) { // Client waiting for Server packet in State 10
+                // Self-healing lockstep recovery: if Client has been waiting >= 2 ticks for Server,
+                // reset [r6 + 0x25] = 0 so Client re-sends its 2-byte input packet and breaks any deadlock!
+                mp_waiting_ticks++;
+                if (mp_waiting_ticks >= 2u) {
+                    mp_waiting_ticks = 0;
+                    w8(reg[6] + 0x25u, 0);
+                }
             } else if (pc == 0x10041a50u) { // End of CMultiplayer::ProcessIncomingPackets (0x100414e8)
                 mp_waiting_for_peer = (reg[0] == 0u) ? 1u : 0u;
+                if (reg[0] != 0u) mp_waiting_ticks = 0;
                 uint32_t mp = r32(cgame_addr + 0x334u);
-                if (mp && mp_rx_watchdog < 160u) {
+                if (mp && mp_rx_watchdog < 600u) {
                     w32(mp + 0x28u, fake_time_ms);
                     w8(mp + 0x32u, 0);
                     w8(mp + 0x33u, 0);
@@ -699,6 +746,130 @@ static void run_arm(uint32_t start_pc) {
                         w16(dst + (uint32_t)(x * 2), r16(pal + idx * 2u));
                     }
                     dst += 0x180u;
+                }
+                reg[15] = reg[14]; continue;
+            } else if (pc == 0x1002c58cu || pc == 0x1002c614u) { // Fast 8x8 4bpp transparent tile blit
+                uint32_t dst = reg[0];
+                uint32_t src = reg[1];
+                uint32_t pal = reg[2];
+                for (int y = 0; y < 8; y++) {
+                    uint32_t w = r32(src);
+                    src += 4u;
+                    for (int x = 0; x < 8; x++) {
+                        uint32_t idx = (w >> (x * 4)) & 0xfu;
+                        if (idx) w16(dst + (uint32_t)(x * 2), r16(pal + idx * 2u));
+                    }
+                    dst += 0x180u;
+                }
+                reg[15] = reg[14]; continue;
+            } else if (pc >= 0x1002c69cu && pc <= 0x1002ca54u &&
+                       (pc == 0x1002c69cu || pc == 0x1002c790u || pc == 0x1002c86cu || pc == 0x1002c960u || pc == 0x1002ca54u)) {
+                // Fast 8x8 4bpp transparent blended tile blitters (75%, 50%, 25%, additive, subtractive)
+                uint32_t dst = reg[0];
+                uint32_t src = reg[1];
+                uint32_t pal = reg[2];
+                for (int y = 0; y < 8; y++) {
+                    uint32_t w = r32(src);
+                    src += 4u;
+                    for (int x = 0; x < 8; x++) {
+                        uint32_t idx = (w >> (x * 4)) & 0xfu;
+                        if (idx) {
+                            uint32_t p_addr = dst + (uint32_t)(x * 2);
+                            uint16_t spx = r16(pal + idx * 2u);
+                            uint16_t dpx = r16(p_addr);
+                            int sb = spx & 0x1f, sg = (spx >> 6) & 0x1f, sr = (spx >> 11) & 0x1f;
+                            int db = dpx & 0x1f, dg = (dpx >> 6) & 0x1f, dr = (dpx >> 11) & 0x1f;
+                            int ob, og, or_;
+                            if (pc == 0x1002c69cu) {
+                                ob = (3 * sb + db) >> 2; og = (3 * sg + dg) >> 2; or_ = (3 * sr + dr) >> 2;
+                            } else if (pc == 0x1002c790u) {
+                                ob = (sb + db) >> 1; og = (sg + dg) >> 1; or_ = (sr + dr) >> 1;
+                            } else if (pc == 0x1002c86cu) {
+                                ob = (sb + 3 * db) >> 2; og = (sg + 3 * dg) >> 2; or_ = (sr + 3 * dr) >> 2;
+                            } else if (pc == 0x1002c960u) {
+                                ob = sb + db; if (ob > 31) ob = 31;
+                                og = sg + dg; if (og > 31) og = 31;
+                                or_ = sr + dr; if (or_ > 31) or_ = 31;
+                            } else {
+                                ob = db - sb; if (ob < 0) ob = 0;
+                                og = dg - sg; if (og < 0) og = 0;
+                                or_ = dr - sr; if (or_ < 0) or_ = 0;
+                            }
+                            w16(p_addr, (uint16_t)((or_ << 11) | (og << 6) | ob));
+                        }
+                    }
+                    dst += 0x180u;
+                }
+                reg[15] = reg[14]; continue;
+            } else if (pc == 0x1002cb30u || pc == 0x1002d050u) { // Fast 8bpp transparent sprite blit
+                uint32_t dst = reg[0];
+                uint32_t src = reg[1];
+                uint32_t pal = reg[2];
+                uint32_t h = reg[3];
+                uint32_t w_blocks = r32(reg[13]);
+                uint32_t src_skip = r32(reg[13] + 4u);
+                if (w_blocks > 0u) {
+                    uint32_t dst_skip = 0x180u - (w_blocks << 4);
+                    uint32_t w_px = w_blocks << 3;
+                    for (uint32_t y = 0; y < h; y++) {
+                        for (uint32_t x = 0; x < w_px; x++) {
+                            uint8_t idx = r8(src++);
+                            if (idx) w16(dst, r16(pal + (uint32_t)idx * 2u));
+                            dst += 2u;
+                        }
+                        dst += dst_skip;
+                        src += src_skip;
+                    }
+                }
+                reg[15] = reg[14]; continue;
+            } else if (pc >= 0x1002d100u && pc <= 0x1002d4c8u &&
+                       (pc == 0x1002d100u || pc == 0x1002d1c4u || pc == 0x1002d27cu ||
+                        pc == 0x1002d340u || pc == 0x1002d404u || pc == 0x1002d4c8u)) {
+                // Fast 8bpp blended / shadow / explosion glow sprite blitters
+                uint32_t dst = reg[0];
+                uint32_t src = reg[1];
+                uint32_t pal = reg[2];
+                uint32_t h = reg[3];
+                uint32_t w_blocks = r32(reg[13]);
+                uint32_t src_skip = r32(reg[13] + 4u);
+                if (w_blocks > 0u) {
+                    uint32_t dst_skip = 0x180u - (w_blocks << 4);
+                    uint32_t w_px = w_blocks << 3;
+                    for (uint32_t y = 0; y < h; y++) {
+                        for (uint32_t x = 0; x < w_px; x++) {
+                            uint8_t idx = r8(src++);
+                            if (idx) {
+                                uint16_t dpx = r16(dst);
+                                int db = dpx & 0x1f, dg = (dpx >> 6) & 0x1f, dr = (dpx >> 11) & 0x1f;
+                                int ob, og, or_;
+                                if (pc == 0x1002d4c8u) { // 75% shadow darken
+                                    ob = (3 * db) >> 2; og = (3 * dg) >> 2; or_ = (3 * dr) >> 2;
+                                } else {
+                                    uint16_t spx = r16(pal + (uint32_t)idx * 2u);
+                                    int sb = spx & 0x1f, sg = (spx >> 6) & 0x1f, sr = (spx >> 11) & 0x1f;
+                                    if (pc == 0x1002d100u) {
+                                        ob = (sb + 3 * db) >> 2; og = (sg + 3 * dg) >> 2; or_ = (sr + 3 * dr) >> 2;
+                                    } else if (pc == 0x1002d1c4u) {
+                                        ob = (sb + db) >> 1; og = (sg + dg) >> 1; or_ = (sr + dr) >> 1;
+                                    } else if (pc == 0x1002d27cu) {
+                                        ob = (3 * sb + db) >> 2; og = (3 * sg + dg) >> 2; or_ = (3 * sr + dr) >> 2;
+                                    } else if (pc == 0x1002d340u) {
+                                        ob = sb + db; if (ob > 31) ob = 31;
+                                        og = sg + dg; if (og > 31) og = 31;
+                                        or_ = sr + dr; if (or_ > 31) or_ = 31;
+                                    } else {
+                                        ob = db - sb; if (ob < 0) ob = 0;
+                                        og = dg - sg; if (og < 0) og = 0;
+                                        or_ = dr - sr; if (or_ < 0) or_ = 0;
+                                    }
+                                }
+                                w16(dst, (uint16_t)((or_ << 11) | (og << 6) | ob));
+                            }
+                            dst += 2u;
+                        }
+                        dst += dst_skip;
+                        src += src_skip;
+                    }
                 }
                 reg[15] = reg[14]; continue;
             } else if (pc == 0x10026758u) {
@@ -1553,8 +1724,30 @@ uint32_t vm_consume_cfg_dirty(void) {
     return d;
 }
 
+static void update_native_rgba_only(void) {
+    if (!native_rgba_dirty) return;
+    uint32_t base = FB_GUEST_ADDR & ADDR_MASK;
+    int idx = 0;
+    for (int y = 0; y < 208; y++) {
+        uint32_t row_off = base + (uint32_t)((y + 8) * 192 * 2);
+        for (int x = 8; x < 8 + 176; x++) {
+            uint32_t p_off = row_off + (uint32_t)(x * 2);
+            uint16_t px = (uint16_t)mem[p_off] | ((uint16_t)mem[p_off + 1] << 8);
+            uint32_t r5 = (px >> 11) & 0x1fu;
+            uint32_t g6 = (px >> 5) & 0x3fu;
+            uint32_t b5 = px & 0x1fu;
+            uint32_t r8_val = (r5 << 3) | (r5 >> 2);
+            uint32_t g8_val = (g6 << 2) | (g6 >> 4);
+            uint32_t b8_val = (b5 << 3) | (b5 >> 2);
+            rgba_fb[idx++] = 0xff000000u | (b8_val << 16) | (g8_val << 8) | r8_val;
+        }
+    }
+    native_rgba_dirty = 0;
+}
+
 WASM_EXPORT("vm_get_rgba_ptr")
 uint32_t *vm_get_rgba_ptr(void) {
+    update_native_rgba_only();
     return rgba_fb;
 }
 
@@ -1662,13 +1855,14 @@ void vm_tick(uint32_t dt_ms) {
     uint32_t mp = r32(cgame_addr + 0x334u);
     if (mp && r8(mp + 0x4du) == 10u) {
         mp_rx_watchdog++;
-        if (mp_rx_watchdog < 160u) {
+        if (mp_rx_watchdog < 600u) {
             w32(mp + 0x28u, fake_time_ms);
             w8(mp + 0x32u, 0);
             w8(mp + 0x33u, 0);
         }
     } else {
         mp_waiting_for_peer = 0;
+        mp_waiting_ticks = 0;
         mp_rx_watchdog = 0;
     }
 
@@ -1699,6 +1893,7 @@ void vm_tick(uint32_t dt_ms) {
 
     sync_cgame_cfg();
     fb_dirty = 1;
+    native_rgba_dirty = 1;
 }
 
 WASM_EXPORT("vm_key_event")
@@ -1902,6 +2097,8 @@ void vm_mp_push_rx(const uint8_t *pkt_data, uint32_t len) {
     w8(mp + 0x33u, 0);
     uint32_t ring = r32(mp + 0x1cu);
     if (!ring) return;
+    // Prevent CRingBuffer (20 slots) wrap-around corruption during lag spikes
+    if (r8(ring + 0xfa2u) >= 18u) return;
     if (len > 200u) len = 200u;
     my_memset(mem + (mp_Scratch_addr & ADDR_MASK), 0, 200);
     my_memcpy(mem + (mp_Scratch_addr & ADDR_MASK), pkt_data, len);

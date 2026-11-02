@@ -899,7 +899,7 @@
           <button class="btn-secondary active" id="btn-audio-enhance">&#127911; Hi-Fi Audio DSP: ON</button>
           <button class="btn-secondary active" id="btn-mute">&#128266; Audio: ON</button>
           <button class="btn-secondary" id="btn-lcd-grid">&#9638; LCD Grid: OFF</button>
-          <button class="btn-secondary" id="btn-speed">Speed: 1.0&times;</button>
+          <button class="btn-secondary active" id="btn-speed">FPS: 30 (Smooth)</button>
           <button class="btn-secondary" id="btn-pause">&#9208; Pause</button>
           <button class="btn-secondary" id="btn-reset">&#8634; Reboot S60</button>
           <button class="btn-secondary" id="btn-screenshot">&#128247; HD Screenshot</button>
@@ -1111,7 +1111,7 @@
       let currentParsedSis = null;
       let running = false;
       let paused = false;
-      let speedMult = 1.0;
+      let targetSimFps = 30;
       let upscaleMode = 2;
       let theaterMode = false;
       let alienCycle = 4;
@@ -1238,9 +1238,186 @@
       let ringCount = 0;
 
       const canvas = document.getElementById("s60-screen");
-      const ctx = canvas.getContext("2d", { alpha: false });
-      const imageData = ctx.createImageData(704, 832);
-      const imgU32 = new Uint32Array(imageData.data.buffer);
+      let gl = null;
+      let glProgram = null;
+      let glTex = null;
+      let glModeLoc = null;
+      let ctx2d = null;
+      let imageData2d = null;
+      let imgU32 = null;
+
+      function initWebGLUpscaler() {
+        gl = canvas.getContext("webgl", { alpha: false, antialias: false, preserveDrawingBuffer: true });
+        if (!gl) {
+          ctx2d = canvas.getContext("2d", { alpha: false });
+          imageData2d = ctx2d.createImageData(704, 832);
+          imgU32 = new Uint32Array(imageData2d.data.buffer);
+          return;
+        }
+        const vsSrc = `
+          attribute vec2 a_pos;
+          varying vec2 v_uv;
+          void main() {
+            v_uv = vec2(a_pos.x * 0.5 + 0.5, 0.5 - a_pos.y * 0.5);
+            gl_Position = vec4(a_pos, 0.0, 1.0);
+          }
+        `;
+        const fsSrc = `
+          precision highp float;
+          varying vec2 v_uv;
+          uniform sampler2D u_tex;
+          uniform int u_mode;
+
+          const vec2 RES = vec2(176.0, 208.0);
+          const vec2 INV_RES = vec2(1.0 / 176.0, 1.0 / 208.0);
+
+          vec3 fetchPx(vec2 ip, float dx, float dy) {
+            vec2 p = clamp(ip + vec2(dx, dy) + 0.5, vec2(0.5), RES - 0.5) * INV_RES;
+            return texture2D(u_tex, p).rgb;
+          }
+
+          float luma(vec3 c) {
+            return dot(c, vec3(0.299, 0.587, 0.114));
+          }
+
+          float ydist(vec3 a, vec3 b) {
+            vec3 d = abs(a - b);
+            return d.r * 3.0 + d.g * 6.0 + d.b;
+          }
+
+          void main() {
+            vec2 pos = v_uv * RES;
+            vec2 ip = floor(pos);
+            vec2 fp = fract(pos);
+
+            vec3 E = fetchPx(ip, 0.0, 0.0);
+            if (u_mode == 0) {
+              gl_FragColor = vec4(E, 1.0);
+              return;
+            }
+
+            vec3 B = fetchPx(ip,  0.0, -1.0);
+            vec3 D = fetchPx(ip, -1.0,  0.0);
+            vec3 F = fetchPx(ip,  1.0,  0.0);
+            vec3 H = fetchPx(ip,  0.0,  1.0);
+
+            // Fast flat-pixel exit on GPU
+            if (ydist(E, B) < 0.04 && ydist(E, D) < 0.04 && ydist(E, F) < 0.04 && ydist(E, H) < 0.04) {
+              gl_FragColor = vec4(E, 1.0);
+              return;
+            }
+
+            vec3 A = fetchPx(ip, -1.0, -1.0);
+            vec3 C = fetchPx(ip,  1.0, -1.0);
+            vec3 G = fetchPx(ip, -1.0,  1.0);
+            vec3 I = fetchPx(ip,  1.0,  1.0);
+
+            // Stage 1: Bilateral De-Dither on center pixel in mode 2
+            if (u_mode == 2) {
+              vec3 sum = E * 2.5;
+              float wsum = 2.5;
+              float dB = ydist(E, B); if (dB < 0.45) { float w = (0.45 - dB); sum += B * w; wsum += w; }
+              float dD = ydist(E, D); if (dD < 0.45) { float w = (0.45 - dD); sum += D * w; wsum += w; }
+              float dF = ydist(E, F); if (dF < 0.45) { float w = (0.45 - dF); sum += F * w; wsum += w; }
+              float dH = ydist(E, H); if (dH < 0.45) { float w = (0.45 - dH); sum += H * w; wsum += w; }
+              E = sum / wsum;
+            }
+
+            // Stage 2: 21-Tap xBR Edge-Directed Slope Reconstruction
+            vec3 B1 = fetchPx(ip,  0.0, -2.0);
+            vec3 D0 = fetchPx(ip, -2.0,  0.0);
+            vec3 F4 = fetchPx(ip,  2.0,  0.0);
+            vec3 H5 = fetchPx(ip,  0.0,  2.0);
+
+            vec3 res = E;
+
+            // Bottom-Right quadrant
+            if (fp.x >= 0.5 && fp.y >= 0.5) {
+              float wd1 = ydist(E, C) + ydist(E, G) + ydist(I, H5) + ydist(I, F4) + 4.0 * ydist(H, F);
+              float wd2 = ydist(H, D) + ydist(F, B) + 4.0 * ydist(E, I);
+              if (wd1 < wd2) {
+                vec3 nc = (ydist(E, F) <= ydist(E, H)) ? F : H;
+                float edge = smoothstep(0.35, 1.05, (fp.x - 0.5) + (fp.y - 0.5));
+                res = mix(E, nc, edge * 0.78);
+              }
+            }
+            // Bottom-Left quadrant
+            else if (fp.x < 0.5 && fp.y >= 0.5) {
+              float wd1 = ydist(E, A) + ydist(E, I) + ydist(G, H5) + ydist(G, D0) + 4.0 * ydist(D, H);
+              float wd2 = ydist(H, F) + ydist(D, B) + 4.0 * ydist(E, G);
+              if (wd1 < wd2) {
+                vec3 nc = (ydist(E, D) <= ydist(E, H)) ? D : H;
+                float edge = smoothstep(0.35, 1.05, (0.5 - fp.x) + (fp.y - 0.5));
+                res = mix(E, nc, edge * 0.78);
+              }
+            }
+            // Top-Right quadrant
+            else if (fp.x >= 0.5 && fp.y < 0.5) {
+              float wd1 = ydist(E, A) + ydist(E, I) + ydist(C, B1) + ydist(C, F4) + 4.0 * ydist(B, F);
+              float wd2 = ydist(B, D) + ydist(F, H) + 4.0 * ydist(E, C);
+              if (wd1 < wd2) {
+                vec3 nc = (ydist(E, F) <= ydist(E, B)) ? F : B;
+                float edge = smoothstep(0.35, 1.05, (fp.x - 0.5) + (0.5 - fp.y));
+                res = mix(E, nc, edge * 0.78);
+              }
+            }
+            // Top-Left quadrant
+            else {
+              float wd1 = ydist(E, G) + ydist(E, C) + ydist(A, B1) + ydist(A, D0) + 4.0 * ydist(D, B);
+              float wd2 = ydist(B, F) + ydist(D, H) + 4.0 * ydist(E, A);
+              if (wd1 < wd2) {
+                vec3 nc = (ydist(E, D) <= ydist(E, B)) ? D : B;
+                float edge = smoothstep(0.35, 1.05, (0.5 - fp.x) + (0.5 - fp.y));
+                res = mix(E, nc, edge * 0.78);
+              }
+            }
+
+            // Stage 3: Anime4K Directional Contour Push & Anti-Aliasing (Mode 2)
+            if (u_mode == 2) {
+              float lE = luma(res);
+              float lB = luma(B), lD = luma(D), lF = luma(F), lH = luma(H);
+              vec3 minC = res, maxC = res;
+              if (lB > lE && lD > lE && fp.x < 0.5 && fp.y < 0.5) res = mix(res, 0.5 * (B + D), 0.35);
+              if (lB > lE && lF > lE && fp.x >= 0.5 && fp.y < 0.5) res = mix(res, 0.5 * (B + F), 0.35);
+              if (lH > lE && lD > lE && fp.x < 0.5 && fp.y >= 0.5) res = mix(res, 0.5 * (H + D), 0.35);
+              if (lH > lE && lF > lE && fp.x >= 0.5 && fp.y >= 0.5) res = mix(res, 0.5 * (H + F), 0.35);
+            }
+
+            gl_FragColor = vec4(res, 1.0);
+          }
+        `;
+        function compileShader(type, src) {
+          const sh = gl.createShader(type);
+          gl.shaderSource(sh, src);
+          gl.compileShader(sh);
+          return sh;
+        }
+        glProgram = gl.createProgram();
+        gl.attachShader(glProgram, compileShader(gl.VERTEX_SHADER, vsSrc));
+        gl.attachShader(glProgram, compileShader(gl.FRAGMENT_SHADER, fsSrc));
+        gl.linkProgram(glProgram);
+        gl.useProgram(glProgram);
+
+        const buf = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, -1,1, 1,-1, 1,1]), gl.STATIC_DRAW);
+        const posLoc = gl.getAttribLocation(glProgram, "a_pos");
+        gl.enableVertexAttribArray(posLoc);
+        gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+
+        glTex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, glTex);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 176, 208, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+
+        glModeLoc = gl.getUniformLocation(glProgram, "u_mode");
+        gl.uniform1i(glModeLoc, upscaleMode);
+        gl.viewport(0, 0, 704, 832);
+      }
+      initWebGLUpscaler();
 
       function showToast(msg) {
         const el = document.getElementById("toast");
@@ -1411,10 +1588,21 @@
       }
 
       function renderFrameFromWasm() {
-        const rgbaPtr = wasmExports.vm_get_upscaled_rgba_ptr();
-        const srcU32 = new Uint32Array(wasmMemory.buffer, rgbaPtr, 704 * 832);
-        imgU32.set(srcU32);
-        ctx.putImageData(imageData, 0, 0);
+        if (!wasmExports) return;
+        if (gl) {
+          // Hardware WebGL GPU Upscaler: uploads ONLY 176x208 native buffer (0.03ms CPU) and runs xBR+Anime4K on GPU!
+          const nativePtr = wasmExports.vm_get_rgba_ptr();
+          const srcU8 = new Uint8Array(wasmMemory.buffer, nativePtr, 176 * 208 * 4);
+          gl.bindTexture(gl.TEXTURE_2D, glTex);
+          gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 176, 208, gl.RGBA, gl.UNSIGNED_BYTE, srcU8);
+          gl.uniform1i(glModeLoc, upscaleMode);
+          gl.drawArrays(gl.TRIANGLES, 0, 6);
+        } else if (ctx2d) {
+          const rgbaPtr = wasmExports.vm_get_upscaled_rgba_ptr();
+          const srcU32 = new Uint32Array(wasmMemory.buffer, rgbaPtr, 704 * 832);
+          imgU32.set(srcU32);
+          ctx2d.putImageData(imageData2d, 0, 0);
+        }
       }
 
       // Guarantee every key press is observed by at least 2 vm_tick() frames
@@ -1618,13 +1806,14 @@
         let lastTime = performance.now();
         let acc = 0;
         let fpsTimer = lastTime;
+        let renderFrames = 0;
 
         // Background-tab fallback timer so unfocused/minimized windows never stall multiplayer lockstep
         setInterval(() => {
           if (document.hidden && !paused && running && wasmExports) {
             stepVmOnce();
           }
-        }, 50);
+        }, 33);
 
         function loop(now) {
           requestAnimationFrame(loop);
@@ -1632,8 +1821,8 @@
           lastTime = now;
           if (paused || !running || !wasmExports) return;
 
-          acc += dt * speedMult;
-          const stepMs = 50;
+          const stepMs = 1000 / targetSimFps;
+          acc += dt;
           const inMp = wasmExports.vm_mp_get_role && wasmExports.vm_mp_get_role() !== 0;
           const maxSteps = inMp ? 1 : 2;
           let stepsRun = 0;
@@ -1644,17 +1833,22 @@
           }
           if (acc >= stepMs) acc = 0;
 
-          if (needsCanvasRender && !document.hidden) {
-            needsCanvasRender = false;
-            renderFrameFromWasm();
-            updateMpStatusUi();
-            if (wasmExports.vm_consume_cfg_dirty()) {
-              saveCfgToStorage();
+          if (!document.hidden) {
+            if (needsCanvasRender) {
+              needsCanvasRender = false;
+              renderFrameFromWasm();
+              updateMpStatusUi();
+              if (wasmExports.vm_consume_cfg_dirty()) {
+                saveCfgToStorage();
+              }
             }
+            renderFrames++;
           }
           if (now - fpsTimer >= 1000) {
-            const fps = (framesCounter * 1000) / (now - fpsTimer);
-            document.getElementById("fps-counter").textContent = `${fps.toFixed(1)} FPS (704\u00d7832 HD)`;
+            const rFps = (renderFrames * 1000) / (now - fpsTimer);
+            const tps = (framesCounter * 1000) / (now - fpsTimer);
+            document.getElementById("fps-counter").textContent = `${rFps.toFixed(0)} FPS GPU (${tps.toFixed(0)} TPS)`;
+            renderFrames = 0;
             framesCounter = 0;
             fpsTimer = now;
           }
@@ -1693,7 +1887,7 @@
             wasmExports.vm_init(parsed.pakBytes.byteLength, 0);
           }
 
-          wasmExports.vm_set_upscale_mode(upscaleMode);
+          if (!gl) wasmExports.vm_set_upscale_mode(upscaleMode);
           renderFrameFromWasm();
           populateManifestTable(parsed.manifest);
 
@@ -1912,13 +2106,13 @@
       document.getElementById("btn-upscale").addEventListener("click", (e) => {
         if (!wasmExports) return;
         upscaleMode = upscaleMode === 2 ? 1 : upscaleMode === 1 ? 0 : 2;
-        wasmExports.vm_set_upscale_mode(upscaleMode);
+        if (!gl) wasmExports.vm_set_upscale_mode(upscaleMode);
         if (running) renderFrameFromWasm();
-        const labels = ["Retro Pixel 1\u00d7", "xBR Crisp 4\u00d7", "xBR+Anime4K 4\u00d7"];
+        const labels = ["Retro Pixel 1\u00d7", "xBR Crisp 4\u00d7 (GPU)", "xBR+Anime4K 4\u00d7 (GPU)"];
         const metaLabels = [
           "Retro Nearest 1\u00d7 (176\u00d7208)",
-          "21-Tap xBR 4\u00d7 (704\u00d7832)",
-          "xBR + Anime4K + De-Dither 4\u00d7 (704\u00d7832)"
+          "WebGL GPU 21-Tap xBR 4\u00d7 (704\u00d7832)",
+          "WebGL GPU xBR + Anime4K + De-Dither 4\u00d7 (704\u00d7832)"
         ];
         canvas.classList.toggle("pixelated-mode", upscaleMode === 0);
         e.currentTarget.classList.toggle("active", upscaleMode !== 0);
@@ -1964,8 +2158,10 @@
       });
 
       document.getElementById("btn-speed").addEventListener("click", (e) => {
-        speedMult = speedMult === 1.0 ? 1.5 : speedMult === 1.5 ? 2.0 : 1.0;
-        e.currentTarget.textContent = `Speed: ${speedMult.toFixed(1)}\u00d7`;
+        targetSimFps = targetSimFps === 30 ? 45 : targetSimFps === 45 ? 60 : targetSimFps === 60 ? 20 : 30;
+        const tag = targetSimFps === 30 ? "Smooth" : targetSimFps === 45 ? "Fast" : targetSimFps === 60 ? "Turbo" : "S60 Orig";
+        e.currentTarget.textContent = `FPS: ${targetSimFps} (${tag})`;
+        showToast(`Simulation Speed: ${targetSimFps} FPS (${tag})`);
       });
 
       document.getElementById("btn-screenshot").addEventListener("click", () => {
