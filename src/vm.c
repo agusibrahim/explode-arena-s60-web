@@ -1857,6 +1857,27 @@ void vm_tick(uint32_t dt_ms) {
     fake_time_ms += 3u; // Symbian 64Hz hardware tick rate (~3.2 ticks per 50ms frame)
 
     uint32_t mp = r32(cgame_addr + 0x334u);
+    if (mp) {
+        uint8_t st = r8(mp + 0x4du);
+        uint32_t role = r32(mp + 0x48u);
+        // Periodic auto-announce while Client (role==2) is waiting in State 9 before Player ID is assigned
+        if (role == 2u && st == 9u && r8(cgame_addr + 0x331u) == 0xffu) {
+            if ((fake_time_ms % 45u) == 0u) {
+                uint8_t hello[16];
+                my_memset(hello, 0, sizeof(hello));
+                hello[0] = 0xfe;
+                hello[1] = 0x01;
+                for (int i = 0; i < 9; i++) {
+                    hello[2 + i] = r8(cgame_addr + 0x28u + i);
+                }
+                hello[12] = (uint8_t)(mp_local_uid & 0xffu);
+                hello[13] = (uint8_t)((mp_local_uid >> 8) & 0xffu);
+                hello[14] = (uint8_t)((mp_local_uid >> 16) & 0xffu);
+                hello[15] = (uint8_t)((mp_local_uid >> 24) & 0xffu);
+                mp_enqueue_tx(-1, hello, 16);
+            }
+        }
+    }
     if (mp && r8(mp + 0x4du) == 10u) {
         mp_rx_watchdog++;
         if (mp_rx_watchdog < 600u) {

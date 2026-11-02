@@ -207,6 +207,7 @@ import android.media.AudioFormat;
 import android.media.AudioManager;
 import android.media.AudioTrack;
 import android.net.Uri;
+import android.net.wifi.WifiManager;
 import android.opengl.GLES20;
 import android.opengl.GLSurfaceView;
 import android.os.Build;
@@ -231,12 +232,20 @@ import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
+import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.InterfaceAddress;
+import java.net.NetworkInterface;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
+import java.util.ArrayList;
+import java.util.Enumeration;
+import java.util.List;
+import java.util.Map;
 import java.util.Random;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.zip.Inflater;
 
 import javax.microedition.khronos.egl.EGLConfig;
@@ -279,6 +288,8 @@ public class MainActivity extends Activity {
     private Thread audioThread;
     private Thread udpRxThread;
     private DatagramSocket udpSocket;
+    private WifiManager.MulticastLock multicastLock;
+    private final ConcurrentHashMap<InetAddress, Long> knownPeers = new ConcurrentHashMap<>();
     private volatile boolean runningThreads = false;
 
     @Override
@@ -291,6 +302,15 @@ public class MainActivity extends Activity {
         prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         localUid = new Random().nextInt(0x7ffffffe) + 1;
         directFrameBuf = ByteBuffer.allocateDirect(176 * 208 * 4).order(ByteOrder.nativeOrder());
+
+        try {
+            WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+            if (wm != null) {
+                multicastLock = wm.createMulticastLock("ExplodeArenaLanLock");
+                multicastLock.setReferenceCounted(false);
+                multicastLock.acquire();
+            }
+        } catch (Exception ignored) {}
 
         setContentView(buildGbaSpClamshellUi());
 
@@ -669,30 +689,91 @@ public class MainActivity extends Activity {
         }
     }
 
+    private List<InetAddress> getLanBroadcastTargets() {
+        List<InetAddress> targets = new ArrayList<>();
+        try {
+            Enumeration<NetworkInterface> nis = NetworkInterface.getNetworkInterfaces();
+            while (nis != null && nis.hasMoreElements()) {
+                NetworkInterface ni = nis.nextElement();
+                if (!ni.isUp() || ni.isLoopback()) continue;
+                for (InterfaceAddress ia : ni.getInterfaceAddresses()) {
+                    InetAddress addr = ia.getAddress();
+                    if (!(addr instanceof Inet4Address)) continue;
+                    InetAddress bcast = ia.getBroadcast();
+                    if (bcast != null && !targets.contains(bcast)) {
+                        targets.add(bcast);
+                    }
+                    // Also add subnet .1 gateway (Hotspot host phone is always x.x.x.1!)
+                    byte[] ip = addr.getAddress();
+                    if (ip.length == 4 && (ip[3] & 0xff) != 1) {
+                        ip[3] = 1;
+                        InetAddress gw = InetAddress.getByAddress(ip);
+                        if (!targets.contains(gw)) targets.add(gw);
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+        try {
+            InetAddress globalBcast = InetAddress.getByName("255.255.255.255");
+            if (!targets.contains(globalBcast)) targets.add(globalBcast);
+        } catch (Exception ignored) {}
+        return targets;
+    }
+
+    private void sendUdpPacketToPeers(byte[] pkt, boolean alsoBroadcast) {
+        if (udpSocket == null || udpSocket.isClosed()) return;
+        long now = System.currentTimeMillis();
+        int sentUnicast = 0;
+        for (Map.Entry<InetAddress, Long> entry : knownPeers.entrySet()) {
+            if (now - entry.getValue() > 15000) {
+                knownPeers.remove(entry.getKey());
+                continue;
+            }
+            try {
+                udpSocket.send(new DatagramPacket(pkt, pkt.length, entry.getKey(), UDP_PORT));
+                sentUnicast++;
+            } catch (Exception ignored) {}
+        }
+        if (alsoBroadcast || sentUnicast == 0) {
+            for (InetAddress bcast : getLanBroadcastTargets()) {
+                try {
+                    udpSocket.send(new DatagramPacket(pkt, pkt.length, bcast, UDP_PORT));
+                } catch (Exception ignored) {}
+            }
+        }
+    }
+
+    private void sendDiscoveryBeacon() {
+        byte[] ping = new byte[]{
+            (byte) (localUid & 0xff),
+            (byte) ((localUid >> 8) & 0xff),
+            (byte) ((localUid >> 16) & 0xff),
+            (byte) ((localUid >> 24) & 0xff),
+            (byte) 0xfd,
+            (byte) 0x01
+        };
+        sendUdpPacketToPeers(ping, true);
+    }
+
     private void pumpMultiplayerTxLocked(byte[] txBuf) {
         int len;
         while ((len = NativeVm.mpPopTx(txBuf)) > 0) {
-            if (udpSocket != null && !udpSocket.isClosed()) {
-                try {
-                    byte[] pkt = new byte[len + 4];
-                    pkt[0] = (byte) (localUid & 0xff);
-                    pkt[1] = (byte) ((localUid >> 8) & 0xff);
-                    pkt[2] = (byte) ((localUid >> 16) & 0xff);
-                    pkt[3] = (byte) ((localUid >> 24) & 0xff);
-                    System.arraycopy(txBuf, 0, pkt, 4, len);
-                    DatagramPacket dp = new DatagramPacket(
-                        pkt, pkt.length, InetAddress.getByName("255.255.255.255"), UDP_PORT
-                    );
-                    udpSocket.send(dp);
-                } catch (Exception ignored) {}
-            }
+            byte[] pkt = new byte[len + 4];
+            pkt[0] = (byte) (localUid & 0xff);
+            pkt[1] = (byte) ((localUid >> 8) & 0xff);
+            pkt[2] = (byte) ((localUid >> 16) & 0xff);
+            pkt[3] = (byte) ((localUid >> 24) & 0xff);
+            System.arraycopy(txBuf, 0, pkt, 4, len);
+            int cmd = txBuf[0] & 0xff;
+            boolean isDiscoveryPkt = (cmd == 0xfe || cmd == 0xff);
+            sendUdpPacketToPeers(pkt, isDiscoveryPkt);
         }
     }
 
     private void startEngineThreads() {
         runningThreads = true;
 
-        // 1. UDP Broadcast LAN Multiplayer Socket Thread (Port 18765)
+        // 1. UDP Auto-Discovery & Unicast Lockstep Multiplayer Thread (Port 18765)
         udpRxThread = new Thread(new Runnable() {
             @Override
             public void run() {
@@ -707,10 +788,37 @@ public class MainActivity extends Activity {
                         DatagramPacket dp = new DatagramPacket(rxBuf, rxBuf.length);
                         udpSocket.receive(dp);
                         int rlen = dp.getLength();
-                        if (rlen <= 4 || !vmInitialized) continue;
+                        if (rlen <= 4) continue;
                         int senderUid = (rxBuf[0] & 0xff) | ((rxBuf[1] & 0xff) << 8)
                             | ((rxBuf[2] & 0xff) << 16) | ((rxBuf[3] & 0xff) << 24);
-                        if (senderUid == localUid) continue;
+                        if (senderUid == localUid || senderUid == 0) continue;
+
+                        InetAddress peerAddr = dp.getAddress();
+                        if (peerAddr != null) {
+                            knownPeers.put(peerAddr, System.currentTimeMillis());
+                        }
+
+                        int b0 = rxBuf[4] & 0xff;
+                        int b1 = (rlen > 5) ? (rxBuf[5] & 0xff) : 0;
+                        if (b0 == 0xfd) {
+                            // Auto-discovery heartbeat ping (0x01) -> reply with direct unicast pong (0x02)
+                            if (b1 == 0x01 && peerAddr != null) {
+                                byte[] pong = new byte[]{
+                                    (byte) (localUid & 0xff),
+                                    (byte) ((localUid >> 8) & 0xff),
+                                    (byte) ((localUid >> 16) & 0xff),
+                                    (byte) ((localUid >> 24) & 0xff),
+                                    (byte) 0xfd,
+                                    (byte) 0x02
+                                };
+                                try {
+                                    udpSocket.send(new DatagramPacket(pong, pong.length, peerAddr, UDP_PORT));
+                                } catch (Exception ignored) {}
+                            }
+                            continue;
+                        }
+
+                        if (!vmInitialized) continue;
                         int payLen = Math.min(rlen - 4, 200);
                         byte[] payload = new byte[payLen];
                         System.arraycopy(rxBuf, 4, payload, 0, payLen);
@@ -757,13 +865,25 @@ public class MainActivity extends Activity {
                         ticks++;
                     }
                     long now = System.currentTimeMillis();
+                    if ((ticks & 15) == 0) {
+                        sendDiscoveryBeacon();
+                    }
                     if (now - fpsTimer >= 1000) {
                         currentSimTps = ticks;
                         ticks = 0;
                         fpsTimer = now;
+                        sendDiscoveryBeacon();
                         runOnUiThread(new Runnable() {
                             @Override
                             public void run() {
+                                int peers = knownPeers.size();
+                                if (peers > 0) {
+                                    tvTopLeft.setText("LAN READY (" + peers + " PEER)");
+                                    tvTopLeft.setTextColor(Color.parseColor("#10b981"));
+                                } else {
+                                    tvTopLeft.setText("POWER ON");
+                                    tvTopLeft.setTextColor(Color.parseColor("#6c6f78"));
+                                }
                                 int role = vmInitialized ? NativeVm.mpGetRole() : 0;
                                 String mpTag = role == 1 ? " • HOST" : (role == 2 ? " • CLIENT" : "");
                                 tvTopRight.setText(currentGlFps + " FPS GPU (" + currentSimTps + " TPS)" + mpTag);
@@ -1408,6 +1528,9 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         runningThreads = false;
         if (udpSocket != null) udpSocket.close();
+        if (multicastLock != null && multicastLock.isHeld()) {
+            try { multicastLock.release(); } catch (Exception ignored) {}
+        }
         super.onDestroy();
     }
 }
