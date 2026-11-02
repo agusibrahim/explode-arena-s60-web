@@ -492,24 +492,26 @@ public class MainActivity extends Activity {
             if (sis.length < 0x80) return false;
 
             ByteBuffer bb = ByteBuffer.wrap(sis).order(ByteOrder.LITTLE_ENDIAN);
-            int uid1 = bb.getInt(0);
-            if (uid1 != 0x10015b92) return false;
+            int uid3 = bb.getInt(0x08);
+            if (uid3 != 0x10000419) return false;
 
-            int nfiles = bb.getShort(0x28) & 0xffff;
-            int pfiles = bb.getInt(0x38);
-            int cur = pfiles;
+            int nfiles = bb.getShort(0x14) & 0xffff;
+            int pfiles = bb.getInt(0x34);
 
             byte[] foundPak = null;
             byte[] foundCode = null;
 
-            for (int i = 0; i < nfiles && cur + 0x24 <= sis.length; i++) {
-                int fnLen = bb.getInt(cur + 8);
-                int fnPtr = bb.getInt(cur + 12);
-                int fLen = bb.getInt(cur + 16);
-                int fPtr = bb.getInt(cur + 20);
-                int origLen = bb.getInt(cur + 24);
+            for (int i = 0; i < nfiles; i++) {
+                int off = pfiles + i * 0x30;
+                if (off + 0x28 > sis.length) break;
+                int fnLen = bb.getInt(off + 0x14);
+                int fnPtr = bb.getInt(off + 0x18);
+                int fLen  = bb.getInt(off + 0x1c);
+                int fPtr  = bb.getInt(off + 0x20);
+                int uLen  = bb.getInt(off + 0x24);
+
                 String name = "";
-                if (fnPtr >= 0 && fnPtr + fnLen <= sis.length) {
+                if (fnPtr >= 0 && fnLen > 0 && fnPtr + fnLen <= sis.length) {
                     StringBuilder sb = new StringBuilder();
                     for (int k = 0; k < fnLen; k += 2) {
                         sb.append((char) (sis[fnPtr + k] & 0xff));
@@ -517,20 +519,25 @@ public class MainActivity extends Activity {
                     name = sb.toString().toLowerCase();
                 }
                 if (fPtr > 0 && fLen > 0 && fPtr + fLen <= sis.length) {
-                    byte[] raw = inflateZlib(sis, fPtr, fLen, origLen > fLen ? origLen : fLen * 4);
+                    byte[] raw;
+                    if (fLen == uLen) {
+                        raw = new byte[fLen];
+                        System.arraycopy(sis, fPtr, raw, 0, fLen);
+                    } else {
+                        raw = inflateZlib(sis, fPtr, fLen, uLen > fLen ? uLen : fLen * 4);
+                    }
                     if (name.endsWith("data.pak")) {
                         foundPak = raw;
-                    } else if (name.endsWith("explodearena.app") && raw.length > 0x7c) {
+                    } else if (name.endsWith(".app") && raw.length > 0x7c) {
                         ByteBuffer ebb = ByteBuffer.wrap(raw).order(ByteOrder.LITTLE_ENDIAN);
-                        int codeOff = ebb.getInt(0x40);
-                        int codeSz = ebb.getInt(0x18);
+                        int codeSz = ebb.getInt(0x30);
+                        int codeOff = ebb.getInt(0x64);
                         if (codeOff > 0 && codeSz > 0 && codeOff + codeSz <= raw.length) {
                             foundCode = new byte[codeSz];
                             System.arraycopy(raw, codeOff, foundCode, 0, codeSz);
                         }
                     }
                 }
-                cur += (i == 0) ? 0x2c : 0x24;
             }
 
             if (foundPak == null || foundCode == null) return false;
@@ -550,7 +557,12 @@ public class MainActivity extends Activity {
             }
 
             if (saveCache) {
-                prefs.edit().putString("cached_sis_b64", Base64.encodeToString(sis, Base64.NO_WRAP)).apply();
+                try {
+                    java.io.File outF = new java.io.File(getFilesDir(), "cached_game.sis");
+                    java.io.FileOutputStream fos = new java.io.FileOutputStream(outF);
+                    fos.write(sis);
+                    fos.close();
+                } catch (Exception ignored) {}
             }
             return true;
         } catch (Exception e) {
@@ -578,20 +590,20 @@ public class MainActivity extends Activity {
     private boolean tryBootBundledOrCachedSis() {
         try {
             InputStream ais = getAssets().open("game.sis");
-            if (bootFromSisStream(ais, false)) {
-                ais.close();
-                return true;
-            }
+            boolean ok = bootFromSisStream(ais, false);
             ais.close();
+            if (ok) return true;
         } catch (Exception ignored) {}
 
-        String b64 = prefs.getString("cached_sis_b64", null);
-        if (b64 != null) {
-            try {
-                byte[] raw = Base64.decode(b64, Base64.DEFAULT);
-                return bootFromSisStream(new java.io.ByteArrayInputStream(raw), false);
-            } catch (Exception ignored) {}
-        }
+        try {
+            java.io.File f = new java.io.File(getFilesDir(), "cached_game.sis");
+            if (f.exists() && f.length() > 100) {
+                java.io.FileInputStream fis = new java.io.FileInputStream(f);
+                boolean ok = bootFromSisStream(fis, false);
+                fis.close();
+                if (ok) return true;
+            }
+        } catch (Exception ignored) {}
         return false;
     }
 
@@ -1200,6 +1212,12 @@ public class MainActivity extends Activity {
             // 7. Bottom-Center SELECT (164) & START (165) Buttons
             drawSmallRecessedButton(c, selectCx, selectCy, smallBtnR, null, isScanActive(164));
             drawSmallRecessedButton(c, startCx, startCy, smallBtnR, null, isScanActive(165));
+            p.setColor(Color.parseColor("#6c6f78"));
+            p.setTextSize(dp(9.5f));
+            p.setTextAlign(Paint.Align.CENTER);
+            p.setTypeface(Typeface.DEFAULT_BOLD);
+            c.drawText("SELECT", selectCx, selectCy + smallBtnR * 2.15f, p);
+            c.drawText("START", startCx, startCy + smallBtnR * 2.15f, p);
         }
 
         private boolean isScanActive(int scan) {
