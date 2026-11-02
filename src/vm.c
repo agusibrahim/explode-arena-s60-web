@@ -41,6 +41,17 @@ static uint32_t cgame_addr = 0;
 static uint32_t audio_wrapper_addr = 0;
 static uint32_t trainer_god_mode = 0;
 
+#define MP_QUEUE_CAP 64
+#define MP_PKT_SIZE  204 // [0]=peer_id (int8), [1]=len (uint8), [2..201]=payload (200B)
+static uint8_t mp_tx_queue[MP_QUEUE_CAP][MP_PKT_SIZE];
+static uint32_t mp_tx_head = 0;
+static uint32_t mp_tx_tail = 0;
+static uint32_t mp_tx_count = 0;
+static uint32_t mp_Scratch_addr = 0;
+static uint32_t mp_connected_clients = 0;
+static uint8_t  mp_client_selected[4] = {0, 0, 0, 0};
+static char     mp_client_names[4][16] = {"PLAYER 2", "PLAYER 3", "PLAYER 4", "PLAYER 5"};
+
 // Minimal standalone C memory/string helpers (no libc required)
 static void *my_memset(void *dst, int val, size_t n) {
     uint8_t *d = (uint8_t *)dst;
@@ -117,6 +128,18 @@ static int my_contains(const char *haystack, const char *needle) {
         if (i == nl) return 1;
     }
     return 0;
+}
+
+static void mp_enqueue_tx(int8_t peer_id, const uint8_t *data, uint32_t len) {
+    if (mp_tx_count >= MP_QUEUE_CAP) return;
+    if (len > 200u) len = 200u;
+    uint8_t *slot = mp_tx_queue[mp_tx_tail];
+    my_memset(slot, 0, MP_PKT_SIZE);
+    slot[0] = (uint8_t)peer_id;
+    slot[1] = (uint8_t)len;
+    my_memcpy(slot + 2, data, len);
+    mp_tx_tail = (mp_tx_tail + 1u) % MP_QUEUE_CAP;
+    mp_tx_count++;
 }
 
 // Guest memory accessors (little-endian)
@@ -489,17 +512,104 @@ static void run_arm(uint32_t start_pc) {
                 reg[15] = reg[14]; continue;
             } else if (pc == 0x10014fe0u) {
                 reg[15] = reg[14]; continue;
-            } else if (pc == 0x1000a478u) {
-                w32(reg[0] + 4, 0);
-                reg[15] = reg[14]; continue;
-            } else if (pc == 0x1000a490u || pc == 0x1000a818u || pc == 0x1000a5ecu) {
-                reg[0] = 0;
-                reg[15] = reg[14]; continue;
             }
         }
 
         if (pc >= 0x10025b00u) {
-            if (pc == 0x1002c0c0u) { // Fast 8x8 4bpp opaque tile blit
+            // Multiplayer CBTTransport HLE hooks (0x1002d570..0x1002e0a4 & 0x10041b30..0x10041bb8)
+            if (pc == 0x1002d570u) { // CBTTransport::ctor(bt, cgame)
+                w32(reg[0], reg[1]);
+                reg[15] = reg[14]; continue;
+            } else if (pc == 0x1002d5d8u) { // CBTTransport::dtor(bt, flags)
+                if (reg[1] & 1u) guest_free(reg[0]);
+                reg[15] = reg[14]; continue;
+            } else if (pc == 0x1002d788u) { // CBTTransport::Init(bt)
+                reg[0] = 1;
+                reg[15] = reg[14]; continue;
+            } else if (pc == 0x1002da90u) { // CBTTransport::ClientStartListen(bt)
+                uint32_t mp = r32(cgame_addr + 0x334u);
+                if (mp) w32(mp + 4u, 1); // Mark client transport active
+                // Player names are stored at cgame + 0x28 + slot * 9 (9 bytes each, slots 0..3)
+                int is_default_name = (
+                    r8(cgame_addr + 0x28u) == 'P' && r8(cgame_addr + 0x29u) == 'l' &&
+                    r8(cgame_addr + 0x2au) == 'a' && r8(cgame_addr + 0x2bu) == 'y' &&
+                    r8(cgame_addr + 0x2cu) == 'e' && r8(cgame_addr + 0x2du) == 'r' &&
+                    r8(cgame_addr + 0x2eu) == '1' && r8(cgame_addr + 0x2fu) == 0
+                );
+                if (is_default_name) {
+                    w8(cgame_addr + 0x28u + 6u, '2'); // Default Client name -> "Player2"
+                }
+                uint8_t hello[16];
+                my_memset(hello, 0, sizeof(hello));
+                hello[0] = 0xfe;
+                hello[1] = 0x01;
+                for (int i = 0; i < 9; i++) {
+                    hello[2 + i] = r8(cgame_addr + 0x28u + i);
+                }
+                mp_enqueue_tx(-1, hello, 12);
+                reg[0] = 1;
+                reg[15] = reg[14]; continue;
+            } else if (pc == 0x1002d880u) { // CBTTransport::ServerStartScan(bt)
+                mp_connected_clients = 0;
+                for (int i = 0; i < 4; i++) mp_client_selected[i] = 0;
+                uint8_t beacon[4] = { 0xff, 0x01, 0x00, 0x00 };
+                mp_enqueue_tx(-1, beacon, 4);
+                reg[0] = 1;
+                reg[15] = reg[14]; continue;
+            } else if (pc == 0x10041bb8u) { // CMultiplayer::IsScanInitDone(mp)
+                reg[0] = 0; // 0 = ready, transitions State 3 -> State 5
+                reg[15] = reg[14]; continue;
+            } else if (pc == 0x1002d8b8u) { // CBTTransport::ServerPollScan(bt)
+                if (mp_connected_clients > 0u) {
+                    reg[0] = 0; // 0 = scan complete, transitions State 5 -> State 6
+                } else {
+                    uint8_t beacon[4] = { 0xff, 0x01, 0x00, 0x00 };
+                    mp_enqueue_tx(-1, beacon, 4);
+                    reg[0] = 1; // 1 = keep scanning until at least 1 client responds
+                }
+                reg[15] = reg[14]; continue;
+            } else if (pc == 0x10041b30u || pc == 0x1002df10u) { // GetDiscoveredClientCount
+                reg[0] = mp_connected_clients;
+                reg[15] = reg[14]; continue;
+            } else if (pc == 0x1002df3cu) { // GetDiscoveredClientName(bt, idx, out_buf)
+                uint32_t idx = reg[1] & 3u;
+                uint32_t dst = reg[2];
+                const char *nm = mp_client_names[idx];
+                uint32_t i = 0;
+                while (nm[i] && i < 15u) {
+                    w8(dst + i, (uint8_t)nm[i]);
+                    i++;
+                }
+                w8(dst + i, 0);
+                reg[15] = reg[14]; continue;
+            } else if (pc == 0x1002dfd4u) { // IsValidExplodeArenaClient(bt, idx)
+                uint32_t idx = reg[1] & 0xffu;
+                reg[0] = (idx < mp_connected_clients) ? 1u : 0u;
+                reg[15] = reg[14]; continue;
+            } else if (pc == 0x1002e0a4u) { // IsClientSelected(bt, idx)
+                uint32_t idx = reg[1] & 3u;
+                reg[0] = (idx < mp_connected_clients) ? mp_client_selected[idx] : 0u;
+                reg[15] = reg[14]; continue;
+            } else if (pc == 0x1002deb4u) { // ToggleClientSelected(bt, idx)
+                uint32_t idx = reg[1] & 3u;
+                if (idx < mp_connected_clients) {
+                    mp_client_selected[idx] ^= 1u;
+                }
+                reg[15] = reg[14]; continue;
+            } else if (pc == 0x1002dae4u) { // CBTTransport::ServerConnectSelected(bt, max)
+                reg[0] = 0; // 0 = connected, sets [mp + 4] = 1 and transitions State 7 -> State 8
+                reg[15] = reg[14]; continue;
+            } else if (pc == 0x1002e01cu) { // CBTTransport::AreAllClientsConnected(bt)
+                reg[0] = 1; // 1 = ready, calls 0x10041338 and transitions State 8 -> State 9
+                reg[15] = reg[14]; continue;
+            } else if (pc == 0x1002de58u) { // CBTTransport::SendPacket(bt, peer_id, data_ptr, len)
+                int8_t peer_id = (int8_t)(reg[1] & 0xffu);
+                const uint8_t *data = mem + (reg[2] & ADDR_MASK);
+                uint32_t len = reg[3] & 0xffu;
+                mp_enqueue_tx(peer_id, data, len);
+                reg[0] = 0;
+                reg[15] = reg[14]; continue;
+            } else if (pc == 0x1002c0c0u) { // Fast 8x8 4bpp opaque tile blit
                 uint32_t dst = reg[0];
                 uint32_t src = reg[1];
                 uint32_t pal = reg[2];
@@ -1315,6 +1425,9 @@ void vm_init(uint32_t pak_len, uint32_t cfg_len) {
     reg[13] = STACK_TOP_ADDR;
 
     cgame_addr = guest_malloc(0x600);
+    mp_Scratch_addr = guest_malloc(256);
+    mp_tx_head = mp_tx_tail = mp_tx_count = 0;
+    mp_connected_clients = 0;
     uint32_t cview = guest_malloc(0x100);
     w32(cview + 0x20, 0x0b); // EColor64K (16-bit RGB565)
 
@@ -1502,6 +1615,85 @@ void vm_set_state_info(const uint32_t *in_info) {
         my_memcpy(last_cgame_cfg, mem + ((cgame_addr + 4u) & ADDR_MASK), 0x68);
     }
     update_rgba_fb();
+}
+
+WASM_EXPORT("vm_mp_set_connected_clients")
+void vm_mp_set_connected_clients(uint32_t count) {
+    mp_connected_clients = count;
+}
+
+WASM_EXPORT("vm_mp_get_role")
+uint32_t vm_mp_get_role(void) {
+    if (!cgame_addr) return 0;
+    uint32_t mp = r32(cgame_addr + 0x334u);
+    if (!mp) return 0;
+    return r32(mp + 0x48u); // 0 = idle, 1 = Server, 2 = Client
+}
+
+WASM_EXPORT("vm_mp_get_state")
+uint32_t vm_mp_get_state(void) {
+    if (!cgame_addr) return 0;
+    uint32_t mp = r32(cgame_addr + 0x334u);
+    if (!mp) return 0;
+    return r8(mp + 0x4du);
+}
+
+WASM_EXPORT("vm_mp_pop_tx")
+uint32_t vm_mp_pop_tx(uint8_t *out_buf) {
+    if (mp_tx_count == 0) return 0;
+    my_memcpy(out_buf, mp_tx_queue[mp_tx_head], MP_PKT_SIZE);
+    mp_tx_head = (mp_tx_head + 1u) % MP_QUEUE_CAP;
+    mp_tx_count--;
+    return 1;
+}
+
+WASM_EXPORT("vm_mp_push_rx")
+void vm_mp_push_rx(const uint8_t *pkt_data, uint32_t len) {
+    if (!cgame_addr || !mp_Scratch_addr) return;
+    uint32_t mp = r32(cgame_addr + 0x334u);
+    if (!mp) return;
+    if (pkt_data[0] == 0xfe && pkt_data[1] == 0x01) {
+        // Client announce received by Server
+        if (mp_connected_clients < 3u) {
+            uint32_t idx = mp_connected_clients++;
+            mp_client_selected[idx] = 0;
+            if (len > 2u && pkt_data[2] != 0) {
+                uint32_t i = 0;
+                while (i < 12u && (2u + i) < len && pkt_data[2u + i]) {
+                    mp_client_names[idx][i] = (char)pkt_data[2u + i];
+                    i++;
+                }
+                mp_client_names[idx][i] = '\0';
+            }
+        }
+        return;
+    }
+    if (pkt_data[0] == 0xff && pkt_data[1] == 0x01) {
+        // Server beacon received by Client: re-announce client presence + player name
+        if (r32(mp + 0x48u) == 2u) {
+            uint8_t hello[16];
+            my_memset(hello, 0, sizeof(hello));
+            hello[0] = 0xfe;
+            hello[1] = 0x01;
+            for (int i = 0; i < 9; i++) {
+                hello[2 + i] = r8(cgame_addr + 0x28u + i);
+            }
+            mp_enqueue_tx(-1, hello, 12);
+        }
+        return;
+    }
+    if (r32(mp + 4u) == 0u) w32(mp + 4u, 1u);
+    uint32_t ring = r32(mp + 0x1cu);
+    if (!ring) return;
+    if (len > 200u) len = 200u;
+    my_memset(mem + (mp_Scratch_addr & ADDR_MASK), 0, 200);
+    my_memcpy(mem + (mp_Scratch_addr & ADDR_MASK), pkt_data, len);
+    uint32_t saved_r[16];
+    my_memcpy(saved_r, reg, sizeof(saved_r));
+    reg[0] = ring;
+    reg[1] = mp_Scratch_addr;
+    run_arm(0x1002a758u);
+    my_memcpy(reg, saved_r, sizeof(saved_r));
 }
 
 WASM_EXPORT("vm_apply_cheat")

@@ -906,6 +906,31 @@
         </div>
       </div>
 
+      <!-- Card 1A: Bluetooth Multiplayer Netplay Bridge (CBTTransport 0x1002d570 HLE) -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">&#128225; Bluetooth Multiplayer Netplay (`CBTTransport` RFCOMM HLE)</div>
+          <span class="card-tag" id="mp-state-badge">BT State: Idle (Multi-Tab Active)</span>
+        </div>
+        <div style="font-size:12px; color:var(--text-secondary); line-height:1.5; margin-bottom:10px;">
+          Original Symbian Bluetooth RFCOMM sockets (<code>0x1002d570..0x1002e0a4</code>) are bridged in real time to <strong>Multi-Tab BroadcastChannel</strong> (always active), <strong>Cross-Device WebRTC Room Codes</strong>, and <strong>LAN WebSockets</strong>.
+          In-game: Player 2 selects <code>MULTIPLAYER &rarr; START CLIENT</code>, then Player 1 selects <code>MULTIPLAYER &rarr; START SERVER &rarr; Mode &rarr; SEARCH</code>, checks <code>PLAYER 2 (&check;)</code>, and clicks <code>START GAME</code>.
+        </div>
+        <div class="toolbar-row" style="margin-bottom: 10px;">
+          <button class="btn-secondary active" id="btn-mp-open-window">&#128640; Open 2nd Player Window (Same PC)</button>
+          <input type="text" class="search-input" id="mp-room-input" placeholder="Room Code (e.g. 4821)" style="max-width:165px; min-width:130px; padding:6px 10px;" />
+          <button class="btn-secondary" id="btn-mp-host-room">&#127760; Host P2P Room</button>
+          <button class="btn-secondary" id="btn-mp-join-room">&#128279; Join P2P Room</button>
+        </div>
+        <div class="toolbar-row">
+          <input type="text" class="search-input" id="mp-ws-input" placeholder="LAN WebSocket Relay (e.g. ws://192.168.1.10:8765)" style="min-width:220px; padding:6px 10px;" />
+          <button class="btn-secondary" id="btn-mp-ws-connect">&#128268; Connect LAN WS</button>
+          <span id="mp-net-status" style="font-family:var(--font-mono); font-size:11px; color:#10b981; margin-left:auto;">
+            BroadcastChannel: Ready (TX:0 RX:0)
+          </span>
+        </div>
+      </div>
+
       <!-- Card 1B: Save Manager (Real-Time game.cfg + Instant VM Save States) -->
       <div class="card">
         <div class="card-header">
@@ -1092,6 +1117,88 @@
       let alienCycle = 4;
       let godModeActive = false;
       let loopStarted = false;
+
+      // Multiplayer Network Bridge (BroadcastChannel + WebRTC PeerJS + LAN WebSocket)
+      const MP_BC_CHANNEL = "explode_arena_s60_bt_netplay_v1";
+      const mpNodeId = Math.random().toString(36).slice(2, 10);
+      let mpBroadcast = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel(MP_BC_CHANNEL) : null;
+      let mpWs = null;
+      let mpPeer = null;
+      let mpRtcConns = [];
+      let mpTxCount = 0;
+      let mpRxCount = 0;
+      let mpTransportLabel = "BroadcastChannel";
+
+      function updateMpStatusUi() {
+        const netEl = document.getElementById("mp-net-status");
+        if (netEl) {
+          netEl.textContent = `${mpTransportLabel} (TX:${mpTxCount} RX:${mpRxCount})`;
+        }
+        if (!wasmExports || !running) return;
+        const role = wasmExports.vm_mp_get_role ? wasmExports.vm_mp_get_role() : 0;
+        const state = wasmExports.vm_mp_get_state ? wasmExports.vm_mp_get_state() : 0;
+        const badge = document.getElementById("mp-state-badge");
+        if (!badge) return;
+        const roleStr = role === 1 ? "Server" : role === 2 ? "Client" : "Idle";
+        const stateNames = {
+          0: "Idle",
+          2: "Init Host",
+          3: "SDP Register",
+          5: "Scanning Clients...",
+          6: "Select Players",
+          7: "Connecting...",
+          8: "Handshaking...",
+          9: role === 2 ? "Waiting for Server..." : "Lobby Sync...",
+          10: "Lockstep Match Active"
+        };
+        badge.textContent = `BT: ${roleStr} (${stateNames[state] || "State " + state})`;
+      }
+
+      function deliverMultiplayerRx(pktBytes) {
+        if (!wasmExports || !running || !pktBytes || pktBytes.length === 0) return;
+        const rxPtr = wasmExports.vm_get_code_buf() + 0x00f18200;
+        const memU8 = new Uint8Array(wasmMemory.buffer);
+        const len = Math.min(pktBytes.length, 200);
+        memU8.set(pktBytes.subarray(0, len), rxPtr);
+        wasmExports.vm_mp_push_rx(rxPtr, len);
+        mpRxCount++;
+        updateMpStatusUi();
+      }
+
+      function pumpMultiplayerTx() {
+        if (!wasmExports || !running || !wasmExports.vm_mp_pop_tx) return;
+        const txPtr = wasmExports.vm_get_code_buf() + 0x00f18000;
+        const memU8 = new Uint8Array(wasmMemory.buffer);
+        while (wasmExports.vm_mp_pop_tx(txPtr)) {
+          const len = memU8[txPtr + 1];
+          const payload = new Uint8Array(len);
+          payload.set(memU8.subarray(txPtr + 2, txPtr + 2 + len));
+          mpTxCount++;
+
+          // 1. Multi-tab BroadcastChannel
+          if (mpBroadcast) {
+            mpBroadcast.postMessage({ sender: mpNodeId, payload: Array.from(payload) });
+          }
+          // 2. LAN WebSocket Relay
+          if (mpWs && mpWs.readyState === WebSocket.OPEN) {
+            mpWs.send(payload);
+          }
+          // 3. Cross-Device WebRTC DataChannels
+          for (const conn of mpRtcConns) {
+            if (conn && conn.open) {
+              conn.send(payload);
+            }
+          }
+        }
+      }
+
+      if (mpBroadcast) {
+        mpBroadcast.onmessage = (ev) => {
+          const msg = ev.data;
+          if (!msg || msg.sender === mpNodeId || !msg.payload) return;
+          deliverMultiplayerRx(new Uint8Array(msg.payload));
+        };
+      }
 
       // WebAudio state (16,000 Hz native mixer stream + Hi-Fi DSP enhancer)
       let audioCtx = null;
@@ -1500,6 +1607,7 @@
           let stepped = false;
           while (acc >= stepMs) {
             wasmExports.vm_tick(stepMs);
+            pumpMultiplayerTx();
             tickCounter++;
             flushPendingKeyUps();
             acc -= stepMs;
@@ -1508,6 +1616,7 @@
           }
           if (stepped) {
             renderFrameFromWasm();
+            updateMpStatusUi();
             if (wasmExports.vm_consume_cfg_dirty()) {
               saveCfgToStorage();
             }
@@ -1610,6 +1719,130 @@
           const btnResume = document.getElementById("btn-resume-cached");
           btnResume.style.display = "inline-flex";
           btnResume.addEventListener("click", () => bootFromSisBytes(cached, false));
+          if (new URLSearchParams(window.location.search).get("autostart") === "1") {
+            bootFromSisBytes(cached, false);
+          }
+        }
+      });
+
+      // Multiplayer UI Controls (2nd Window, WebRTC Room Code, LAN WebSocket)
+      document.getElementById("btn-mp-open-window").addEventListener("click", () => {
+        const url = new URL(window.location.href);
+        url.searchParams.set("autostart", "1");
+        window.open(url.toString(), "_blank", "width=540,height=920");
+        showToast("Opened 2nd Player Window (BroadcastChannel active)!");
+      });
+
+      function loadPeerJsScript() {
+        if (window.Peer) return Promise.resolve(window.Peer);
+        return new Promise((resolve, reject) => {
+          const s = document.createElement("script");
+          s.src = "https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js";
+          s.onload = () => resolve(window.Peer);
+          s.onerror = () => reject(new Error("Failed to load PeerJS CDN"));
+          document.head.appendChild(s);
+        });
+      }
+
+      function bindRtcConn(conn) {
+        conn.on("open", () => {
+          if (!mpRtcConns.includes(conn)) mpRtcConns.push(conn);
+          mpTransportLabel = `WebRTC P2P (${mpRtcConns.length} peer)`;
+          updateMpStatusUi();
+          showToast("WebRTC P2P Bluetooth Bridge Connected!");
+        });
+        conn.on("data", (data) => {
+          const bytes = data instanceof ArrayBuffer
+            ? new Uint8Array(data)
+            : ArrayBuffer.isView(data)
+            ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+            : new Uint8Array(data);
+          deliverMultiplayerRx(bytes);
+          // If we are the Room Host and have multiple peers, relay between them
+          for (const other of mpRtcConns) {
+            if (other !== conn && other.open) other.send(bytes);
+          }
+        });
+        conn.on("close", () => {
+          mpRtcConns = mpRtcConns.filter((c) => c !== conn);
+          updateMpStatusUi();
+        });
+      }
+
+      document.getElementById("btn-mp-host-room").addEventListener("click", async () => {
+        try {
+          const inputEl = document.getElementById("mp-room-input");
+          let code = inputEl.value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+          if (!code) {
+            code = String(Math.floor(1000 + Math.random() * 9000));
+            inputEl.value = code;
+          }
+          mpTransportLabel = `Hosting Room ${code}...`;
+          updateMpStatusUi();
+          const PeerClass = await loadPeerJsScript();
+          if (mpPeer) mpPeer.destroy();
+          mpRtcConns = [];
+          mpPeer = new PeerClass(`explode-arena-s60-room-${code}`);
+          mpPeer.on("open", () => {
+            mpTransportLabel = `Room ${code} Ready`;
+            updateMpStatusUi();
+            showToast(`Hosting Room ${code}! Other player can Join Room ${code}.`);
+          });
+          mpPeer.on("connection", (conn) => bindRtcConn(conn));
+          mpPeer.on("error", (err) => showToast(`WebRTC Error: ${err.type || err.message}`));
+        } catch (err) {
+          showToast(`P2P Error: ${err.message}`);
+        }
+      });
+
+      document.getElementById("btn-mp-join-room").addEventListener("click", async () => {
+        try {
+          const code = document.getElementById("mp-room-input").value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+          if (!code) {
+            showToast("Enter the Host's Room Code first!");
+            return;
+          }
+          mpTransportLabel = `Joining Room ${code}...`;
+          updateMpStatusUi();
+          const PeerClass = await loadPeerJsScript();
+          if (mpPeer) mpPeer.destroy();
+          mpRtcConns = [];
+          mpPeer = new PeerClass();
+          mpPeer.on("open", () => {
+            const conn = mpPeer.connect(`explode-arena-s60-room-${code}`, { reliable: true });
+            bindRtcConn(conn);
+          });
+          mpPeer.on("error", (err) => showToast(`WebRTC Error: ${err.type || err.message}`));
+        } catch (err) {
+          showToast(`P2P Error: ${err.message}`);
+        }
+      });
+
+      document.getElementById("btn-mp-ws-connect").addEventListener("click", () => {
+        const inputEl = document.getElementById("mp-ws-input");
+        const url = inputEl.value.trim() || "ws://localhost:8765";
+        inputEl.value = url;
+        try {
+          if (mpWs) mpWs.close();
+          mpWs = new WebSocket(url);
+          mpWs.binaryType = "arraybuffer";
+          mpWs.onopen = () => {
+            mpTransportLabel = `LAN WS Connected`;
+            updateMpStatusUi();
+            showToast(`Connected to LAN WebSocket Relay (${url})!`);
+          };
+          mpWs.onmessage = (ev) => {
+            if (ev.data instanceof ArrayBuffer) {
+              deliverMultiplayerRx(new Uint8Array(ev.data));
+            }
+          };
+          mpWs.onclose = () => {
+            mpTransportLabel = "BroadcastChannel";
+            updateMpStatusUi();
+          };
+          mpWs.onerror = () => showToast(`Failed to connect to ${url}`);
+        } catch (err) {
+          showToast(`WebSocket Error: ${err.message}`);
         }
       });
 

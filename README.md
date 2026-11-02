@@ -38,6 +38,10 @@ Instead of re-implementing an approximation of the game logic, this project exec
 - **Enhanced 12-Channel Audio Engine (`soundtrack.mod` + 15 `.wav` SFX):**
   - Hooks the internal channel mixer (`0x10007310`) with **16.16 fixed-point sub-sample linear interpolation** and **16-bit signed saturation (`-32768..32767`)** to eliminate integer wrap-around distortion.
   - Streams into WebAudio via a **4-point Hermite cubic resampler**, **Warm Low-Shelf EQ (+3.5 dB @ 145 Hz)**, **Butterworth Anti-Hiss Lowpass Filter (6.8 kHz)**, and **Soft-Knee Dynamics Compressor**.
+- **Authentic Screen Transitions & Mask Wipes (`0x1000A5EC` & `0x1000A818`):** Executes the original RGB565 per-pixel brightness fade-in/fade-out (`0x1000A5EC`) and 2D affine-transformed `mask1.raw`/`mask2.raw` splash wipe transitions (`0x1000A818`).
+- **Symbian Bluetooth Multiplayer Bridged to Modern Web/LAN Netplay (`0x1002D570..0x1002E0A4`):**
+  - Intercepts the low-level Symbian Bluetooth RFCOMM/SDP transport (`CBTTransport`) while keeping the original 11-state lockstep multiplayer engine (`CMultiplayer` at `0x10040BC4`) 100% intact.
+  - Supports **Same-PC Multi-Tab (`BroadcastChannel`)**, **Cross-Device P2P Room Codes (`WebRTC DataChannel`)**, and **Offline Local Network WebSockets (`tools/lan_relay.js`)**.
 - **Dual Save System (`game.cfg` Auto-Sync + Instant VM Save States):**
   - **Real-Time Native `game.cfg` Persistence:** Monitors the 104-byte configuration struct at `cgame + 4` every frame and automatically syncs changes (player name, keybindings, audio settings, unlocked campaign stages) to `localStorage` (plus `.cfg` file Import/Export).
   - **Instant VM Save States:** Save and restore the entire ARMv4T VM state (RAM, heap, framebuffer, CPU registers) across 2 browser slots (`IndexedDB`, shortcuts `F5` / `F8`) or export/import `.sav` snapshot files.
@@ -159,6 +163,25 @@ At `0x10010590`, the game compares Player 1's name (`cgame + 0x28`) against secr
 - **`S.FORCE`** → Sets `*(uint8_t*)(cgame + 0x374) = 1` (Unlocks secret *Sky Force* bonus theme).
 - **`IDREAMS`** → Sets `*(uint8_t*)(cgame + 0x374) = 2` (Unlocks secret *Infinite Dreams* bonus theme).
 - **`ALIEN1` .. `ALIEN7`** → Sets `*(uint8_t*)(cgame + 0x1C) = 4..10` (Allows playing as the 7 secret Alien characters).
+
+---
+
+### 6. Symbian Bluetooth Multiplayer (`CMultiplayer` & `CBTTransport`) → Web/LAN Netplay Bridge
+Disassembly of `0x10040BC4..0x10041E14` and `0x1002D570..0x1002E0A4` reveals a clean two-layer multiplayer architecture:
+1. **High-Level Lockstep Session Controller (`CMultiplayer` at `[cgame + 0x334]`, `0x70` bytes):**
+   - Drives an 11-state machine (`[mp + 0x4D] = 1..11` at `0x10041C20`) across Server (`[mp + 0x48] == 1`) and Client (`[mp + 0x48] == 2`).
+   - Uses a 20-slot × 200-byte packet ring buffer (`CRingBuffer` at `[mp + 0x1C]`, push at `0x1002A758`, pop at `0x1002A7D4`).
+   - Exchanges 8 packet types (`pkt[0] = (player_idx << 4) | cmd_type`):
+     - `Type 1` (`4B`): Server assigns Client player index (`1..3`).
+     - `Type 4` (`4B`): Server requests Client profile.
+     - `Type 3` (`200B`): Client replies with Hero, Color, and 9-byte Player Name (`cgame + 0x28`).
+     - `Type 5` (`200B`): Server broadcasts the 104-byte match configuration (`cgame + 4`) and transitions to State 10.
+     - `Type 0 / 2 / 7 / 8`: Lockstep per-tick input frames, RNG seed sync (`[cgame + 0x364]`), and level state packets.
+2. **Low-Level Bluetooth RFCOMM Transport (`CBTTransport` at `[mp + 0x14]`, `0x1002D570..0x1002E0A4`):**
+   - By hooking `CBTTransport::ClientStartListen` (`0x1002DA90`), `ServerStartScan` (`0x1002D880`), `ServerPollScan` (`0x1002D8B8`), device discovery (`0x1002DF10..0x1002E0A4`), and `SendPacket` (`0x1002DE58`) in `src/vm.c`, physical Symbian `RSocket` Bluetooth RFCOMM is transparently replaced with three modern transports:
+     - **Same-Device Multi-Tab (`BroadcastChannel`)**: Click **Open 2nd Player Window** to play side-by-side in two browser windows with zero configuration.
+     - **Cross-Device Room Code (`WebRTC DataChannel`)**: Host a 4-digit Room Code on one phone/laptop and join from another device directly on GitHub Pages.
+     - **Offline Local Network WebSocket Relay (`tools/lan_relay.js`)**: Run `node tools/lan_relay.js` (or `bun tools/lan_relay.js`) to host a zero-dependency LAN WebSocket relay (`ws://<LAN-IP>:8765`).
 
 ---
 
