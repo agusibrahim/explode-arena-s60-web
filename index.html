@@ -362,32 +362,44 @@
     }
 
     .nav-cluster {
-      display: grid;
-      grid-template-columns: 1fr 132px 1fr;
-      align-items: center;
-      gap: 12px;
-      margin-top: 16px;
-      margin-bottom: 14px;
-    }
-
-    .softkey-col {
       display: flex;
       flex-direction: column;
+      gap: 12px;
+      margin-top: 14px;
+      margin-bottom: 6px;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
+      touch-action: none;
+    }
+
+    .softkey-bar {
+      display: grid;
+      grid-template-columns: 1.15fr 0.9fr 0.9fr 1.15fr;
       gap: 8px;
+    }
+
+    .thumb-deck {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 6px 4px;
     }
 
     .hw-btn {
       user-select: none;
       -webkit-user-select: none;
-      touch-action: manipulation;
+      -webkit-touch-callout: none;
+      touch-action: none;
       background: linear-gradient(180deg, #2b3444 0%, #1d2430 100%);
       border: 1px solid rgba(255, 255, 255, 0.14);
       border-bottom-color: rgba(0, 0, 0, 0.5);
       color: var(--text-primary);
-      border-radius: 10px;
+      border-radius: 12px;
       padding: 10px 8px;
       font-family: var(--font-display);
-      font-weight: 600;
+      font-weight: 700;
       font-size: 12px;
       cursor: pointer;
       display: flex;
@@ -395,8 +407,8 @@
       align-items: center;
       justify-content: center;
       gap: 2px;
-      box-shadow: 0 3px 6px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.12);
-      transition: transform 0.06s ease, background 0.1s ease, box-shadow 0.06s ease;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+      transition: transform 0.04s ease, background 0.08s ease, box-shadow 0.06s ease;
     }
 
     .hw-btn small {
@@ -404,18 +416,23 @@
       font-size: 9px;
       color: var(--text-secondary);
       font-weight: 500;
+      pointer-events: none;
+    }
+
+    .hw-btn span {
+      pointer-events: none;
     }
 
     .hw-btn:active,
     .hw-btn.active {
-      transform: translateY(2px);
+      transform: translateY(2px) scale(0.97);
       background: linear-gradient(180deg, #3b475c 0%, #263040 100%);
       border-color: var(--accent-amber);
-      box-shadow: 0 0 12px var(--accent-amber-glow), inset 0 1px 2px rgba(0, 0, 0, 0.5);
+      box-shadow: 0 0 14px var(--accent-amber-glow), inset 0 1px 3px rgba(0, 0, 0, 0.6);
     }
 
     .hw-btn.softkey {
-      height: 46px;
+      height: 44px;
       border-top: 2px solid var(--accent-cyan);
     }
 
@@ -424,45 +441,146 @@
     }
 
     .dpad-ring {
-      width: 132px;
-      height: 132px;
+      width: 156px;
+      height: 156px;
+      flex-shrink: 0;
       border-radius: 50%;
-      background: radial-gradient(circle, #181e27 0%, #10141b 100%);
-      border: 2px solid #2e3848;
+      background: radial-gradient(circle, #1c2330 0%, #0f131a 100%);
+      border: 2px solid #323d4f;
       position: relative;
-      box-shadow: inset 0 3px 8px rgba(0, 0, 0, 0.8), 0 2px 6px rgba(0, 0, 0, 0.5);
+      box-shadow: inset 0 4px 12px rgba(0, 0, 0, 0.85), 0 4px 12px rgba(0, 0, 0, 0.55);
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
     }
 
     .dpad-btn {
       position: absolute;
-      width: 40px;
-      height: 40px;
-      border-radius: 8px;
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
       padding: 0;
-      font-size: 14px;
+      font-size: 16px;
+      pointer-events: none;
     }
 
-    .dpad-up    { top: 4px; left: 44px; }
-    .dpad-down  { bottom: 4px; left: 44px; }
-    .dpad-left  { left: 4px; top: 44px; }
-    .dpad-right { right: 4px; top: 44px; }
+    .dpad-up    { top: 4px; left: 52px; }
+    .dpad-down  { bottom: 4px; left: 52px; }
+    .dpad-left  { left: 4px; top: 52px; }
+    .dpad-right { right: 4px; top: 52px; }
     .dpad-center {
-      top: 44px;
-      left: 44px;
-      width: 40px;
-      height: 40px;
+      top: 52px;
+      left: 52px;
+      width: 48px;
+      height: 48px;
       border-radius: 50%;
-      background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-      color: #090b0e;
+      background: linear-gradient(135deg, #2a3342 0%, #181e28 100%);
+      color: #cbd5e1;
       font-weight: 700;
       font-size: 10px;
-      border: 1px solid rgba(255, 255, 255, 0.35);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      pointer-events: none;
+    }
+
+    .arcade-cluster {
+      position: relative;
+      width: 168px;
+      height: 156px;
+      flex-shrink: 0;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    .arcade-btn-bomb {
+      position: absolute;
+      bottom: 6px;
+      left: 6px;
+      width: 82px;
+      height: 82px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 30%, #f59e0b 0%, #d97706 65%, #92400e 100%);
+      color: #090b0e;
+      border: 2px solid rgba(255, 255, 255, 0.38);
+      box-shadow: 0 6px 18px rgba(245, 158, 11, 0.4), inset 0 2px 3px rgba(255, 255, 255, 0.45);
+      font-size: 15px;
+      font-weight: 800;
+    }
+
+    .arcade-btn-bomb small {
+      color: rgba(9, 11, 14, 0.8);
+      font-weight: 700;
+      font-size: 10px;
+    }
+
+    .arcade-btn-bomb.active,
+    .arcade-btn-bomb:active {
+      background: radial-gradient(circle at 35% 30%, #fbbf24 0%, #f59e0b 70%, #b45309 100%);
+      border-color: #fff;
+      box-shadow: 0 0 22px rgba(245, 158, 11, 0.85), inset 0 2px 5px rgba(0, 0, 0, 0.4);
+    }
+
+    .arcade-btn-detonate {
+      position: absolute;
+      top: 8px;
+      right: 6px;
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 30%, #f43f5e 0%, #e11d48 65%, #881337 100%);
+      color: #fff;
+      border: 2px solid rgba(255, 255, 255, 0.32);
+      box-shadow: 0 6px 16px rgba(244, 63, 94, 0.38), inset 0 2px 3px rgba(255, 255, 255, 0.35);
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .arcade-btn-detonate small {
+      color: rgba(255, 255, 255, 0.85);
+      font-weight: 700;
+      font-size: 9px;
+    }
+
+    .arcade-btn-detonate.active,
+    .arcade-btn-detonate:active {
+      background: radial-gradient(circle at 35% 30%, #fb7185 0%, #f43f5e 70%, #be123c 100%);
+      border-color: #fff;
+      box-shadow: 0 0 22px rgba(244, 63, 94, 0.85), inset 0 2px 5px rgba(0, 0, 0, 0.4);
+    }
+
+    .arcade-btn-ok {
+      position: absolute;
+      top: 12px;
+      left: 10px;
+      width: 64px;
+      height: 40px;
+      border-radius: 999px;
+      font-size: 11px;
+      background: linear-gradient(180deg, #283244 0%, #19202c 100%);
+      border: 1px solid rgba(6, 182, 212, 0.45);
     }
 
     .numpad-grid {
-      display: grid;
+      display: none;
       grid-template-columns: repeat(3, 1fr);
       gap: 8px;
+      margin-top: 8px;
+      padding-top: 10px;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .numpad-grid.open {
+      display: grid;
+    }
+
+    @media (max-width: 640px) {
+      .topbar { padding: 8px 12px; }
+      .brand-sub { display: none; }
+      .workspace { padding: 8px 8px 24px; gap: 14px; }
+      .nokia-chassis { padding: 12px 14px 16px; border-radius: 24px; }
+      .earpiece-row { margin-bottom: 8px; }
+      .screen-bezel { padding: 8px; }
+      .canvas-wrap { width: 100%; height: auto; max-height: 52dvh; }
     }
 
     .hw-btn.action-bomb {
@@ -825,59 +943,69 @@
           </div>
         </div>
 
-        <!-- S60 Softkeys + 5-Way D-Pad -->
-        <div class="nav-cluster">
-          <div class="softkey-col">
-            <button class="hw-btn softkey" data-scan="164" title="Left Softkey (Shortcut: Q or [)">
+        <!-- Ergonomic Handheld Controller (Continuous-Slide D-Pad + Arcade Action Pad) -->
+        <div class="nav-cluster" id="gamepad-surface">
+          <div class="softkey-bar">
+            <button class="hw-btn softkey" data-scan="164" title="Left Softkey: BACK / CANCEL (Q)">
               <span>SOFT L</span>
-              <small>[Q] / [</small>
+              <small>BACK [Q]</small>
+            </button>
+            <button class="hw-btn" id="btn-toggle-numpad" title="Toggle 0-9 Numpad for entering player name">
+              <span>123 KEY</span>
+              <small>Numpad</small>
             </button>
             <button class="hw-btn" data-scan="1" title="Backspace / Clear">
               <span>CLEAR</span>
               <small>Bksp</small>
             </button>
-          </div>
-
-          <div class="dpad-ring">
-            <button class="hw-btn dpad-btn dpad-up" data-scan="16" title="Up (Up Arrow / W)">&#9650;</button>
-            <button class="hw-btn dpad-btn dpad-down" data-scan="17" title="Down (Down Arrow / S)">&#9660;</button>
-            <button class="hw-btn dpad-btn dpad-left" data-scan="14" title="Left (Left Arrow / A)">&#9664;</button>
-            <button class="hw-btn dpad-btn dpad-right" data-scan="15" title="Right (Right Arrow / D)">&#9654;</button>
-            <button class="hw-btn dpad-center" data-scan="167" title="Center / Confirm / Place Bomb (Enter)">FIRE</button>
-          </div>
-
-          <div class="softkey-col">
-            <button class="hw-btn softkey softkey-right" data-scan="165" title="Right Softkey: PROCEED / BACK / PAUSE (Shortcut: E, ], or Esc)">
+            <button class="hw-btn softkey softkey-right" data-scan="165" title="Right Softkey: PROCEED / PAUSE (E / Esc)">
               <span>SOFT R</span>
-              <small>[E] / Esc</small>
+              <small>PROCEED [E]</small>
             </button>
-            <button class="hw-btn" data-scan="5" title="Space">
-              <span>SPACE</span>
-              <small>Space</small>
-            </button>
+          </div>
+
+          <div class="thumb-deck">
+            <!-- Left Thumb: Continuous Slide-to-Steer D-Pad -->
+            <div class="dpad-ring" id="dpad-touch-zone" title="Slide thumb smoothly to move in any direction">
+              <button class="hw-btn dpad-btn dpad-up" data-scan="16">&#9650;</button>
+              <button class="hw-btn dpad-btn dpad-down" data-scan="17">&#9660;</button>
+              <button class="hw-btn dpad-btn dpad-left" data-scan="14">&#9664;</button>
+              <button class="hw-btn dpad-btn dpad-right" data-scan="15">&#9654;</button>
+              <button class="hw-btn dpad-center" data-scan="167">SLIDE</button>
+            </div>
+
+            <!-- Right Thumb: Ergonomic Arcade Twin-Action Cluster -->
+            <div class="arcade-cluster" id="arcade-touch-zone">
+              <button class="hw-btn arcade-btn-ok" data-scan="167" title="Menu Select / Confirm (Enter)">
+                <span>SELECT</span>
+                <small>OK / Enter</small>
+              </button>
+              <button class="hw-btn arcade-btn-detonate" data-scan="56" title="Detonate Remote Bomb (Key 8 / Shift / X)">
+                <span>DET</span>
+                <small>B &bull; KEY 8</small>
+              </button>
+              <button class="hw-btn arcade-btn-bomb" data-scan="53" title="Place Bomb (Key 5 / Space / Z)">
+                <span>BOMB</span>
+                <small>A &bull; KEY 5</small>
+              </button>
+            </div>
           </div>
         </div>
 
-        <!-- Nokia Numpad -->
-        <div class="numpad-grid">
+        <!-- Collapsible Nokia Numpad (for Name Entry / Dialing) -->
+        <div class="numpad-grid" id="numpad-drawer">
           <button class="hw-btn" data-scan="49"><span>1</span><small>.,-;0</small></button>
           <button class="hw-btn" data-scan="50"><span>2</span><small>ABC</small></button>
           <button class="hw-btn" data-scan="51"><span>3</span><small>DEF</small></button>
           <button class="hw-btn" data-scan="52"><span>4</span><small>GHI</small></button>
-          <button class="hw-btn action-bomb" data-scan="53" title="Place Bomb (Space / Z / 5)">
-            <span>5 &bull; BOMB</span>
-            <small>Space / Z</small>
-          </button>
+          <button class="hw-btn action-bomb" data-scan="53"><span>5 &bull; BOMB</span><small>JKL</small></button>
           <button class="hw-btn" data-scan="54"><span>6</span><small>MNO</small></button>
           <button class="hw-btn" data-scan="55"><span>7</span><small>PQRS</small></button>
-          <button class="hw-btn action-detonate" data-scan="56" title="Detonate Bomb (Shift / X / 8)">
-            <span>8 &bull; DET</span>
-            <small>Shift / X</small>
-          </button>
+          <button class="hw-btn action-detonate" data-scan="56"><span>8 &bull; DET</span><small>TUV</small></button>
           <button class="hw-btn" data-scan="57"><span>9</span><small>WXYZ</small></button>
-          <button class="hw-btn" id="btn-quick-skip" title="Skip Splash / Press Fire"><span>&#9193;</span><small>Skip</small></button>
+          <button class="hw-btn" id="btn-quick-skip"><span>&#9193;</span><small>Skip</small></button>
           <button class="hw-btn" data-scan="48"><span>0</span><small>Space</small></button>
-          <button class="hw-btn" id="btn-quick-proceed" title="Press Right Softkey (Proceed / Pause)"><span>OK/P</span><small>Proceed</small></button>
+          <button class="hw-btn" id="btn-quick-proceed"><span>OK/P</span><small>Proceed</small></button>
         </div>
       </div>
     </section>
@@ -1610,14 +1738,29 @@
       const keyDownTick = new Map();
       const pendingKeyUp = new Set();
 
+      function hapticPulse(ms = 8) {
+        try {
+          if (window.AndroidBridge && window.AndroidBridge.vibrate) {
+            window.AndroidBridge.vibrate(ms);
+          } else if (navigator.vibrate) {
+            navigator.vibrate(ms);
+          }
+        } catch (e) {}
+      }
+
+      function setBtnVisualActive(scanCode, active) {
+        document.querySelectorAll(`.hw-btn[data-scan="${scanCode}"]`).forEach((btn) => {
+          btn.classList.toggle("active", active);
+        });
+      }
+
       function sendKey(scanCode, isPressed) {
         if (!wasmExports || !running) return;
-        const btn = document.querySelector(`.hw-btn[data-scan="${scanCode}"]`);
         if (isPressed) {
           pendingKeyUp.delete(scanCode);
           keyDownTick.set(scanCode, tickCounter);
           wasmExports.vm_key_event(scanCode, 1);
-          if (btn) btn.classList.add("active");
+          setBtnVisualActive(scanCode, true);
         } else {
           const downAt = keyDownTick.get(scanCode);
           if (downAt !== undefined && (tickCounter - downAt) < 2) {
@@ -1625,7 +1768,7 @@
           } else {
             keyDownTick.delete(scanCode);
             wasmExports.vm_key_event(scanCode, 0);
-            if (btn) btn.classList.remove("active");
+            setBtnVisualActive(scanCode, false);
           }
         }
       }
@@ -1637,8 +1780,7 @@
             pendingKeyUp.delete(scanCode);
             keyDownTick.delete(scanCode);
             wasmExports.vm_key_event(scanCode, 0);
-            const btn = document.querySelector(`.hw-btn[data-scan="${scanCode}"]`);
-            if (btn) btn.classList.remove("active");
+            setBtnVisualActive(scanCode, false);
           }
         }
       }
@@ -1726,23 +1868,201 @@
         }
       });
 
+      // 1. Continuous-Slide Multi-Touch D-Pad (#dpad-touch-zone)
+      const dpadZone = document.getElementById("dpad-touch-zone");
+      let dpadTouchId = null;
+      let dpadMouseDown = false;
+      let currentDpadScan = null;
+      let dpadCenterTapCandidate = false;
+
+      function updateDpadDirectionFromPoint(clientX, clientY, isStart) {
+        if (!running || !wasmExports) return;
+        const rect = dpadZone.getBoundingClientRect();
+        const cx = rect.left + rect.width * 0.5;
+        const cy = rect.top + rect.height * 0.5;
+        const dx = clientX - cx;
+        const dy = clientY - cy;
+        const dist = Math.hypot(dx, dy);
+
+        if (dist < 14) {
+          if (isStart) dpadCenterTapCandidate = true;
+          if (currentDpadScan !== null) {
+            sendKey(currentDpadScan, false);
+            currentDpadScan = null;
+          }
+          return;
+        }
+        dpadCenterTapCandidate = false;
+
+        // Determine cardinal direction (Up=16, Down=17, Left=14, Right=15)
+        let nextScan;
+        if (Math.abs(dx) > Math.abs(dy)) {
+          nextScan = dx > 0 ? 15 : 14;
+        } else {
+          nextScan = dy > 0 ? 17 : 16;
+        }
+
+        if (nextScan !== currentDpadScan) {
+          if (currentDpadScan !== null) {
+            // Immediate release of previous direction when sliding
+            pendingKeyUp.delete(currentDpadScan);
+            keyDownTick.delete(currentDpadScan);
+            wasmExports.vm_key_event(currentDpadScan, 0);
+            setBtnVisualActive(currentDpadScan, false);
+          }
+          currentDpadScan = nextScan;
+          sendKey(currentDpadScan, true);
+          hapticPulse(6);
+        }
+      }
+
+      function releaseDpad() {
+        if (currentDpadScan !== null) {
+          sendKey(currentDpadScan, false);
+          currentDpadScan = null;
+        }
+        if (dpadCenterTapCandidate) {
+          dpadCenterTapCandidate = false;
+          hapticPulse(8);
+          pulseKey(167);
+        }
+      }
+
+      dpadZone.addEventListener("touchstart", (e) => {
+        e.preventDefault();
+        initAudio();
+        if (dpadTouchId === null && e.changedTouches.length > 0) {
+          const t = e.changedTouches[0];
+          dpadTouchId = t.identifier;
+          updateDpadDirectionFromPoint(t.clientX, t.clientY, true);
+        }
+      }, { passive: false });
+
+      dpadZone.addEventListener("touchmove", (e) => {
+        e.preventDefault();
+        if (dpadTouchId === null) return;
+        for (let i = 0; i < e.changedTouches.length; i++) {
+          const t = e.changedTouches[i];
+          if (t.identifier === dpadTouchId) {
+            updateDpadDirectionFromPoint(t.clientX, t.clientY, false);
+            break;
+          }
+        }
+      }, { passive: false });
+
+      const endDpadTouch = (e) => {
+        if (dpadTouchId === null) return;
+        for (let i = 0; i < e.changedTouches.length; i++) {
+          if (e.changedTouches[i].identifier === dpadTouchId) {
+            e.preventDefault();
+            dpadTouchId = null;
+            releaseDpad();
+            break;
+          }
+        }
+      };
+      dpadZone.addEventListener("touchend", endDpadTouch, { passive: false });
+      dpadZone.addEventListener("touchcancel", endDpadTouch, { passive: false });
+
+      // Desktop mouse support on D-Pad
+      dpadZone.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        initAudio();
+        dpadMouseDown = true;
+        updateDpadDirectionFromPoint(e.clientX, e.clientY, true);
+      });
+      window.addEventListener("mousemove", (e) => {
+        if (dpadMouseDown) updateDpadDirectionFromPoint(e.clientX, e.clientY, false);
+      });
+      window.addEventListener("mouseup", () => {
+        if (dpadMouseDown) {
+          dpadMouseDown = false;
+          releaseDpad();
+        }
+      });
+
+      // 2. Multi-Touch Action Cluster & Softkeys (tracks each finger independently + supports thumb sliding!)
+      const activeTouchScans = new Map(); // touch.identifier -> scanCode
+
+      function getActionButtonScanAt(clientX, clientY) {
+        const el = document.elementFromPoint(clientX, clientY);
+        if (!el) return null;
+        const btn = el.closest(".hw-btn[data-scan]");
+        if (!btn || dpadZone.contains(btn)) return null;
+        return parseInt(btn.getAttribute("data-scan"), 10);
+      }
+
       document.querySelectorAll(".hw-btn[data-scan]").forEach((btn) => {
+        if (dpadZone.contains(btn)) return;
         const scan = parseInt(btn.getAttribute("data-scan"), 10);
-        const down = (e) => {
+
+        btn.addEventListener("touchstart", (e) => {
+          e.preventDefault();
+          if (!running) return;
+          initAudio();
+          for (let i = 0; i < e.changedTouches.length; i++) {
+            const t = e.changedTouches[i];
+            activeTouchScans.set(t.identifier, scan);
+          }
+          hapticPulse(9);
+          sendKey(scan, true);
+        }, { passive: false });
+
+        btn.addEventListener("touchmove", (e) => {
+          e.preventDefault();
+          if (!running) return;
+          for (let i = 0; i < e.changedTouches.length; i++) {
+            const t = e.changedTouches[i];
+            const prevScan = activeTouchScans.get(t.identifier);
+            const nextScan = getActionButtonScanAt(t.clientX, t.clientY);
+            if (prevScan !== nextScan) {
+              if (prevScan !== undefined && prevScan !== null) sendKey(prevScan, false);
+              if (nextScan !== null) {
+                hapticPulse(8);
+                sendKey(nextScan, true);
+              }
+              activeTouchScans.set(t.identifier, nextScan);
+            }
+          }
+        }, { passive: false });
+
+        const onTouchEnd = (e) => {
+          e.preventDefault();
+          for (let i = 0; i < e.changedTouches.length; i++) {
+            const t = e.changedTouches[i];
+            const prevScan = activeTouchScans.get(t.identifier);
+            if (prevScan !== undefined && prevScan !== null) {
+              sendKey(prevScan, false);
+            }
+            activeTouchScans.delete(t.identifier);
+          }
+        };
+        btn.addEventListener("touchend", onTouchEnd, { passive: false });
+        btn.addEventListener("touchcancel", onTouchEnd, { passive: false });
+
+        // Desktop mouse fallback
+        btn.addEventListener("mousedown", (e) => {
           e.preventDefault();
           if (!running) return;
           initAudio();
           sendKey(scan, true);
-        };
-        const up = (e) => {
+        });
+        btn.addEventListener("mouseup", (e) => {
           e.preventDefault();
           if (!running) return;
           sendKey(scan, false);
-        };
-        btn.addEventListener("pointerdown", down);
-        btn.addEventListener("pointerup", up);
-        btn.addEventListener("pointerleave", up);
-        btn.addEventListener("pointercancel", up);
+        });
+        btn.addEventListener("mouseleave", () => {
+          if (!running) return;
+          sendKey(scan, false);
+        });
+      });
+
+      document.getElementById("btn-toggle-numpad").addEventListener("click", (e) => {
+        const drawer = document.getElementById("numpad-drawer");
+        const isOpen = drawer.classList.toggle("open");
+        e.currentTarget.classList.toggle("active", isOpen);
+        hapticPulse(8);
       });
 
       document.getElementById("btn-quick-skip").addEventListener("click", () => {
@@ -1941,17 +2261,21 @@
         bootFromSisBytes(new Uint8Array(buf), true);
       });
 
-      // Check if a cached .sis exists in IndexedDB
-      loadSisFromIdb().then((cached) => {
-        if (cached && cached.byteLength > 0) {
-          const btnResume = document.getElementById("btn-resume-cached");
-          btnResume.style.display = "inline-flex";
-          btnResume.addEventListener("click", () => bootFromSisBytes(cached, false));
-          if (new URLSearchParams(window.location.search).get("autostart") === "1") {
-            bootFromSisBytes(cached, false);
+      // Auto-boot if running inside standalone Android APK with embedded .SIS, otherwise check IndexedDB
+      if (window.BUILTIN_SIS_BASE64) {
+        bootFromSisBytes(b64ToUint8Array(window.BUILTIN_SIS_BASE64), false);
+      } else {
+        loadSisFromIdb().then((cached) => {
+          if (cached && cached.byteLength > 0) {
+            const btnResume = document.getElementById("btn-resume-cached");
+            btnResume.style.display = "inline-flex";
+            btnResume.addEventListener("click", () => bootFromSisBytes(cached, false));
+            if (new URLSearchParams(window.location.search).get("autostart") === "1") {
+              bootFromSisBytes(cached, false);
+            }
           }
-        }
-      });
+        });
+      }
 
       // Multiplayer UI Controls (2nd Window, WebRTC Room Code, LAN WebSocket)
       document.getElementById("btn-mp-open-window").addEventListener("click", () => {
