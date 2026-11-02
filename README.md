@@ -199,22 +199,43 @@ make
 ```
 This compiles `src/vm.c` into `vm.wasm` and updates `js/vm_wasm.js`.
 
+### Building Native Android `.APK` & iOS `.IPA` Packages
+This repository includes zero-dependency build scripts for both **Android** and **iOS** (supporting both clean-room BYO-SIS builds and personal `.sis`-bundled builds, with **Cross-Platform Android ↔ iOS Zero-Config UDP Auto-Discovery on Port `18765`**):
+
+```bash
+# 1. Android — Pure Native C / JNI + OpenGL ES 2.0 APK (No WebView/JS/Wasm):
+python3 tools/build_native_jni_apk.py [/path/to/Explode_Arena.sis] [output.apk]
+
+# 2. Android — WebGL WebView Edition APK:
+python3 tools/build_android_apk.py [/path/to/Explode_Arena.sis] [output.apk]
+
+# 3. iOS — Pure Native Objective-C/C + WKWebView Unsigned .IPA (for Sideloadly / AltStore):
+python3 tools/build_ios_ipa.py [/path/to/Explode_Arena.sis] [output_dir]
+```
+
 ---
 
 ## Project Structure
 
 ```
 explode-arena-s60-web/
-├── index.html          # Main English UI, WebAudio DSP, Save Manager & Inspector
+├── index.html          # GBA SP Clamshell UI, WebGL GPU 4x Upscaler, WebAudio DSP, Netplay & PWA
+├── manifest.json       # Progressive Web App (PWA) manifest for standalone installation
+├── sw.js               # Offline Service Worker cache
 ├── Makefile            # Reproducible build script for vm.wasm & js/vm_wasm.js
-├── vm.wasm             # Compiled 37 KB ARMv4T + Symbian HLE + 4x Upscaler Wasm module
+├── vm.wasm             # Compiled ARMv4T + Symbian HLE WebAssembly module
 ├── docs/
 │   └── screenshots/    # 4x HD upscaled documentation screenshots (2x2 grid)
 ├── src/
-│   └── vm.c            # C source: ARMv4T CPU, Symbian HLE, Audio Mixer, 5-Stage Upscaler
-└── js/
-    ├── vm_wasm.js      # Base64-wrapped vm.wasm for zero-CORS file:// execution
-    └── sis_parser.js   # Pure-JS Symbian EPOC R6 .sis & data.pak parser + DEFLATE
+│   └── vm.c            # Unified C/JNI/Wasm source: ARMv4T CPU, Symbian HLE, Blitters, Audio, BT HLE
+├── js/
+│   ├── vm_wasm.js      # Base64-wrapped vm.wasm for zero-CORS file:// execution
+│   └── sis_parser.js   # Pure-JS Symbian EPOC R6 .sis & data.pak parser + DEFLATE
+└── tools/
+    ├── build_native_jni_apk.py  # Pure Native C / JNI + OpenGL ES 2.0 Android APK builder
+    ├── build_android_apk.py     # WebGL WebView Android APK builder
+    ├── build_ios_ipa.py         # Native Objective-C/C & WKWebView iOS .IPA builder (Sideloadly)
+    └── lan_relay.js             # Zero-dependency Node.js/Bun LAN WebSocket relay
 ```
 
 ---

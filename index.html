@@ -2,7 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#0b0d10" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="manifest" href="manifest.json" />
   <title>Explode Arena S60 — ARMv4T WebAssembly VM &amp; Reverse Engineering Studio</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -2405,6 +2409,37 @@
         let acc = 0;
         let fpsTimer = lastTime;
         let renderFrames = 0;
+        const gpPrevState = new Map();
+
+        function pollPhysicalGamepads() {
+          if (!navigator.getGamepads) return;
+          const pads = navigator.getGamepads();
+          for (let i = 0; i < pads.length; i++) {
+            const gp = pads[i];
+            if (!gp || !gp.connected) continue;
+            const b = gp.buttons;
+            const axX = gp.axes?.[0] || 0;
+            const axY = gp.axes?.[1] || 0;
+            const state = {
+              16: Boolean(b[12]?.pressed || axY < -0.45),
+              17: Boolean(b[13]?.pressed || axY >  0.45),
+              14: Boolean(b[14]?.pressed || axX < -0.45),
+              15: Boolean(b[15]?.pressed || axX >  0.45),
+              200: Boolean(b[0]?.pressed || b[2]?.pressed),
+              201: Boolean(b[1]?.pressed || b[3]?.pressed),
+              164: Boolean(b[8]?.pressed),
+              165: Boolean(b[9]?.pressed)
+            };
+            const prev = gpPrevState.get(gp.index) || {};
+            for (const [scanStr, isDown] of Object.entries(state)) {
+              const scan = Number(scanStr);
+              if (Boolean(prev[scan]) !== isDown) {
+                sendKey(scan, isDown);
+              }
+            }
+            gpPrevState.set(gp.index, state);
+          }
+        }
 
         // Background-tab fallback timer so unfocused/minimized windows never stall multiplayer lockstep
         setInterval(() => {
@@ -2418,6 +2453,7 @@
           const dt = Math.min(now - lastTime, 100);
           lastTime = now;
           if (paused || !running || !wasmExports) return;
+          pollPhysicalGamepads();
 
           const stepMs = 1000 / targetSimFps;
           acc += dt;
@@ -2934,6 +2970,10 @@
           saveCfgToStorage();
         }
       });
+
+      if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
+        navigator.serviceWorker.register("sw.js").catch(() => {});
+      }
 
       document.querySelectorAll(".cheat-btn[data-cheat]").forEach((btn) => {
         btn.addEventListener("click", () => {

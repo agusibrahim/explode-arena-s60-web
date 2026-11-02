@@ -1,0 +1,17 @@
+{
+  "name": "Explode Arena SP — Symbian S60 WebAssembly VM",
+  "short_name": "Explode Arena SP",
+  "description": "Clean-room ARMv4T WebAssembly VM & Symbian S60 HLE for Explode Arena (2004) with WebGL GPU 4x xBR+Anime4K Upscaler and Bluetooth Netplay Bridge.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b0d11",
+  "theme_color": "#0b0d11",
+  "icons": [
+    {
+      "src": "docs/screenshots/1_main_menu.png",
+      "sizes": "704x832",
+      "type": "image/png"
+    }
+  ]
+}
