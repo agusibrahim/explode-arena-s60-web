@@ -1590,8 +1590,29 @@
               conn.send(payload);
             }
           }
+          // 4. Native Android / iOS UDP Port 18765 Bridge (Zero-Config Cross-Platform LAN/Hotspot)
+          if (window.AndroidBridge && window.AndroidBridge.sendUdp) {
+            let bin = "";
+            for (let i = 0; i < payload.length; i++) bin += String.fromCharCode(payload[i]);
+            window.AndroidBridge.sendUdp(btoa(bin));
+          }
         }
       }
+
+      window.__onNativeUdpRx = (b64, peers) => {
+        if (peers > 0) {
+          const lbl = document.getElementById("screen-mode-label");
+          if (lbl) {
+            lbl.textContent = `LAN READY (${peers} PEER)`;
+            lbl.style.color = "#10b981";
+          }
+          const led = document.getElementById("sp-power-led");
+          if (led) led.classList.add("connected");
+        }
+        if (b64) {
+          deliverMultiplayerRx(b64ToUint8Array(b64));
+        }
+      };
 
       if (mpBroadcast) {
         mpBroadcast.onmessage = (ev) => {

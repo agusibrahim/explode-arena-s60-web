@@ -95,6 +95,8 @@ manifest = """<?xml version="1.0" encoding="utf-8"?>
     <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
@@ -128,10 +130,12 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
+import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
+import android.util.Base64;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.Window;
@@ -143,11 +147,30 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
+import java.net.Inet4Address;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.InterfaceAddress;
+import java.net.NetworkInterface;
+import java.util.Enumeration;
+import java.util.Map;
+import java.util.Random;
+import java.util.concurrent.ConcurrentHashMap;
+
 public class MainActivity extends Activity {
     private WebView webView;
     private Vibrator vibrator;
     private ValueCallback<Uri[]> filePathCallback;
     private static final int FILE_CHOOSER_REQ = 1001;
+    private static final int UDP_PORT = 18765;
+
+    private DatagramSocket udpSocket;
+    private WifiManager.MulticastLock multicastLock;
+    private final ConcurrentHashMap<InetAddress, Long> knownPeers = new ConcurrentHashMap<>();
+    private int localUid;
+    private volatile boolean runningUdp = false;
 
     public class AndroidBridge {
         @JavascriptInterface
@@ -162,6 +185,152 @@ public class MainActivity extends Activity {
                 }
             } catch (Exception ignored) {}
         }
+
+        @JavascriptInterface
+        public void sendUdp(final String b64) {
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        byte[] pay = Base64.decode(b64, Base64.DEFAULT);
+                        if (pay == null || pay.length == 0) return;
+                        byte[] pkt = new byte[pay.length + 4];
+                        pkt[0] = (byte) (localUid & 0xff);
+                        pkt[1] = (byte) ((localUid >> 8) & 0xff);
+                        pkt[2] = (byte) ((localUid >> 16) & 0xff);
+                        pkt[3] = (byte) ((localUid >> 24) & 0xff);
+                        System.arraycopy(pay, 0, pkt, 4, pay.length);
+                        int cmd = pay[0] & 0xff;
+                        sendUdpPacket(pkt, (cmd == 0xfe || cmd == 0xff));
+                    } catch (Exception ignored) {}
+                }
+            }).start();
+        }
+    }
+
+    private void sendUdpPacket(byte[] pkt, boolean alsoBroadcast) {
+        if (udpSocket == null || udpSocket.isClosed()) return;
+        long now = System.currentTimeMillis();
+        int sentUnicast = 0;
+        for (Map.Entry<InetAddress, Long> e : knownPeers.entrySet()) {
+            if (now - e.getValue() > 15000) {
+                knownPeers.remove(e.getKey());
+                continue;
+            }
+            try {
+                udpSocket.send(new DatagramPacket(pkt, pkt.length, e.getKey(), UDP_PORT));
+                sentUnicast++;
+            } catch (Exception ignored) {}
+        }
+        if (!alsoBroadcast && sentUnicast > 0) return;
+        try {
+            Enumeration<NetworkInterface> nis = NetworkInterface.getNetworkInterfaces();
+            while (nis != null && nis.hasMoreElements()) {
+                NetworkInterface ni = nis.nextElement();
+                if (!ni.isUp() || ni.isLoopback()) continue;
+                for (InterfaceAddress ia : ni.getInterfaceAddresses()) {
+                    InetAddress addr = ia.getAddress();
+                    if (!(addr instanceof Inet4Address)) continue;
+                    InetAddress bcast = ia.getBroadcast();
+                    if (bcast != null) {
+                        try { udpSocket.send(new DatagramPacket(pkt, pkt.length, bcast, UDP_PORT)); } catch (Exception ignored) {}
+                    }
+                    byte[] ip = addr.getAddress();
+                    if (ip.length == 4 && (ip[0] & 0xff) != 127 && (ip[0] & 0xff) != 169) {
+                        int myLast = ip[3] & 0xff;
+                        for (int h = 1; h <= 254; h++) {
+                            if (h == myLast) continue;
+                            ip[3] = (byte) h;
+                            try {
+                                udpSocket.send(new DatagramPacket(pkt, pkt.length, InetAddress.getByAddress(ip), UDP_PORT));
+                            } catch (Exception ignored) {}
+                        }
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private void startUdpBridge() {
+        localUid = new Random().nextInt(0x7ffffffe) + 1;
+        runningUdp = true;
+        try {
+            WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+            if (wm != null) {
+                multicastLock = wm.createMulticastLock("ExplodeArenaWebUdpLock");
+                multicastLock.setReferenceCounted(false);
+                multicastLock.acquire();
+            }
+        } catch (Exception ignored) {}
+
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    udpSocket = new DatagramSocket(null);
+                    udpSocket.setReuseAddress(true);
+                    udpSocket.setBroadcast(true);
+                    udpSocket.bind(new InetSocketAddress(UDP_PORT));
+                    byte[] rxBuf = new byte[256];
+                    while (runningUdp) {
+                        DatagramPacket dp = new DatagramPacket(rxBuf, rxBuf.length);
+                        udpSocket.receive(dp);
+                        int rlen = dp.getLength();
+                        if (rlen <= 4) continue;
+                        int senderUid = (rxBuf[0] & 0xff) | ((rxBuf[1] & 0xff) << 8)
+                            | ((rxBuf[2] & 0xff) << 16) | ((rxBuf[3] & 0xff) << 24);
+                        if (senderUid == localUid || senderUid == 0) continue;
+
+                        InetAddress peerAddr = dp.getAddress();
+                        if (peerAddr != null) knownPeers.put(peerAddr, System.currentTimeMillis());
+
+                        if ((rxBuf[4] & 0xff) == 0xfd) {
+                            if (rlen > 5 && (rxBuf[5] & 0xff) == 0x01 && peerAddr != null) {
+                                byte[] pong = new byte[]{
+                                    (byte) (localUid & 0xff), (byte) ((localUid >> 8) & 0xff),
+                                    (byte) ((localUid >> 16) & 0xff), (byte) ((localUid >> 24) & 0xff),
+                                    (byte) 0xfd, (byte) 0x02
+                                };
+                                try { udpSocket.send(new DatagramPacket(pong, pong.length, peerAddr, UDP_PORT)); } catch (Exception ignored) {}
+                            }
+                            final int pc = knownPeers.size();
+                            runOnUiThread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    if (webView != null) webView.evaluateJavascript("if(window.__onNativeUdpRx)window.__onNativeUdpRx(''," + pc + ");", null);
+                                }
+                            });
+                            continue;
+                        }
+                        byte[] pay = new byte[rlen - 4];
+                        System.arraycopy(rxBuf, 4, pay, 0, pay.length);
+                        final String b64 = Base64.encodeToString(pay, Base64.NO_WRAP);
+                        final int pc = knownPeers.size();
+                        runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                if (webView != null) webView.evaluateJavascript("if(window.__onNativeUdpRx)window.__onNativeUdpRx('" + b64 + "'," + pc + ");", null);
+                            }
+                        });
+                    }
+                } catch (Exception ignored) {}
+            }
+        }).start();
+
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                byte[] ping = new byte[]{
+                    (byte) (localUid & 0xff), (byte) ((localUid >> 8) & 0xff),
+                    (byte) ((localUid >> 16) & 0xff), (byte) ((localUid >> 24) & 0xff),
+                    (byte) 0xfd, (byte) 0x01
+                };
+                while (runningUdp) {
+                    sendUdpPacket(ping, knownPeers.isEmpty());
+                    try { Thread.sleep(1200); } catch (Exception ignored) {}
+                }
+            }
+        }).start();
     }
 
     private void applyImmersiveFullscreen() {
@@ -220,6 +389,7 @@ public class MainActivity extends Activity {
         webView.setWebViewClient(new WebViewClient());
 
         setContentView(webView);
+        startUdpBridge();
         webView.loadUrl("file:///android_asset/index.html");
     }
 

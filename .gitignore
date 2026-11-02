@@ -12,6 +12,7 @@
 *.cfg
 *.sav
 *.apk
+*.ipa
 extracted_sis/
 extracted_pak/
 

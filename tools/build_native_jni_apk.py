@@ -744,15 +744,42 @@ public class MainActivity extends Activity {
     }
 
     private void sendDiscoveryBeacon() {
-        byte[] ping = new byte[]{
-            (byte) (localUid & 0xff),
-            (byte) ((localUid >> 8) & 0xff),
-            (byte) ((localUid >> 16) & 0xff),
-            (byte) ((localUid >> 24) & 0xff),
-            (byte) 0xfd,
-            (byte) 0x01
-        };
-        sendUdpPacketToPeers(ping, true);
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                byte[] ping = new byte[]{
+                    (byte) (localUid & 0xff),
+                    (byte) ((localUid >> 8) & 0xff),
+                    (byte) ((localUid >> 16) & 0xff),
+                    (byte) ((localUid >> 24) & 0xff),
+                    (byte) 0xfd,
+                    (byte) 0x01
+                };
+                sendUdpPacketToPeers(ping, true);
+                if (knownPeers.isEmpty() && udpSocket != null && !udpSocket.isClosed()) {
+                    try {
+                        Enumeration<NetworkInterface> nis = NetworkInterface.getNetworkInterfaces();
+                        while (nis != null && nis.hasMoreElements()) {
+                            NetworkInterface ni = nis.nextElement();
+                            if (!ni.isUp() || ni.isLoopback()) continue;
+                            for (InterfaceAddress ia : ni.getInterfaceAddresses()) {
+                                InetAddress addr = ia.getAddress();
+                                if (!(addr instanceof Inet4Address)) continue;
+                                byte[] ip = addr.getAddress();
+                                if (ip.length != 4 || (ip[0] & 0xff) == 127 || (ip[0] & 0xff) == 169) continue;
+                                int myLast = ip[3] & 0xff;
+                                for (int h = 1; h <= 254; h++) {
+                                    if (h == myLast) continue;
+                                    ip[3] = (byte) h;
+                                    InetAddress dst = InetAddress.getByAddress(ip);
+                                    udpSocket.send(new DatagramPacket(ping, ping.length, dst, UDP_PORT));
+                                }
+                            }
+                        }
+                    } catch (Exception ignored) {}
+                }
+            }
+        }).start();
     }
 
     private void pumpMultiplayerTxLocked(byte[] txBuf) {
